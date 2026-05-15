@@ -1,6 +1,0 @@
-Interfaces.
-
-Conceptualmente:
-
-BaseModel
-BaseGenerator
