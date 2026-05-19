@@ -30,20 +30,6 @@ def evaluate_predictions(
 ):
     pred_full = Path(DATA_DIR) / predictions_path
 
-    print("=" * 80)
-    print("PREDICTIONS FILE:")
-    print(pred_full)
-    print("=" * 80)
-
-    print("=" * 80)
-    print("PREDICTIONS CONTENT")
-    print("=" * 80)
-
-    with pred_full.open("r") as f:
-        content = f.read()
-
-    print(content[:10000])
-
     if not pred_full.exists():
         raise FileNotFoundError(pred_full)
 

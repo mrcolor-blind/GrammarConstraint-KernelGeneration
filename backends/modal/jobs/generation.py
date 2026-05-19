@@ -80,11 +80,6 @@ def generate_predictions(
                 model=model_name,
             )
 
-            print("=" * 80)
-            print("RAW RESPONSE")
-            print("=" * 80)
-            print(raw_response[:5000])
-
             code = extract_code(raw_response)
 
             print("=" * 80)
