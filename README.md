@@ -3,376 +3,533 @@
 Notebook Flujo TritonBench:
 https://colab.research.google.com/drive/1r820uomX4ivjKng-Sw7Vncc6JWq9Rm6R?usp=sharing 
 
-# Pipeline Testing Guide
 
-## 1. Install Local Dependencies
+A research pipeline for generating Triton kernels using LLMs and evaluating them with TritonBench using Modal.
 
-Install Modal locally:
+---
+
+# Overview
+
+This project:
+
+1. Generates Triton kernel implementations using an LLM provider
+2. Evaluates generations using TritonBench
+3. Runs remotely on Modal GPU containers
+4. Supports different providers/models
+5. Uses an end-to-end benchmark pipeline
+
+Current supported workflow:
+
+- Provider: NVIDIA
+- Model example:
+  - `mistralai/devstral-small-2507`
+
+---
+
+# Requirements
+
+## 1. Install Python
+
+Recommended:
+
+- Python 3.12 or 3.13
+
+Verify:
+
+```bash
+python --version
+```
+
+---
+
+## 2. Install Git
+
+Verify:
+
+```bash
+git --version
+```
+
+---
+
+## 3. Install Modal
+
+Official website:
+
+:contentReference[oaicite:0]{index=0}
+
+Install:
 
 ```bash
 pip install modal
 ```
 
----
-
-## 2. Authenticate Modal
+Verify:
 
 ```bash
-modal setup
+modal --version
 ```
 
 ---
 
-## 3. Create Modal Secrets
-
-Create a single secret containing all provider API keys:
+# Clone Repository
 
 ```bash
-modal secret create grammar-constrains OPENAI_API_KEY=your_openai_key NVIDIA_API_KEY=your_nvidia_key GEMINI_API_KEY=your_gemini_key
+git clone <YOUR_REPOSITORY_URL>
+cd GrammarConstraint-KernelGeneration
 ```
 
 ---
 
-## 4. Attach Secrets to the Generation Job
+# Modal Authentication
 
-File:
+Login to Modal:
 
-```text
-backends/modal/jobs/generation.py
+```bash
+modal token new
 ```
 
-Add:
+This opens a browser for authentication.
 
-```python
-secrets=[
-    modal.Secret.from_name("triton-grammar-constrains")
-]
-```
+Verify login:
 
-Final decorator:
-
-```python
-@app.function(
-    timeout=60 * 60 * 4,
-    cpu=4,
-    volumes={DATA_DIR: volume},
-    secrets=[
-        modal.Secret.from_name("tritonforge-llm")
-    ],
-)
+```bash
+modal profile current
 ```
 
 ---
 
-## 5. Fix NVIDIA Provider
+# Create Modal Secret
 
-File:
+The NVIDIA provider requires an NVIDIA API key.
 
-```text
-models/providers/nvidia_provider.py
+Create a secret in Modal:
+
+```bash
+modal secret create triton-grammar-constrains NVIDIA_API_KEY=YOUR_API_KEY
 ```
 
-Use:
+Verify:
 
-```python
-import os
+```bash
+modal secret list
+```
 
-from openai import OpenAI
+You should see:
 
-from models.interfaces.base_provider import BaseProvider
-
-
-class NvidiaProvider(BaseProvider):
-    def __init__(self):
-        self.client = OpenAI(
-            api_key=os.environ["NVIDIA_API_KEY"],
-            base_url="https://integrate.api.nvidia.com/v1",
-        )
-
-    def generate(self, messages, model):
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_completion_tokens=8192,
-        )
-
-        return response.choices[0].message.content
+```text
+triton-grammar-constrains
 ```
 
 ---
 
-## 6. Fix OpenAI Provider
+# NVIDIA API Key
 
-File:
+Obtain an API key from:
+
+:contentReference[oaicite:1]{index=1}
+
+The key is used by the NVIDIA provider backend.
+
+---
+
+# Project Structure
+
+Important directories:
 
 ```text
-models/providers/openai_provider.py
+backends/
+models/
+prompts/
+orchestration/
+evaluation/
 ```
 
-Add:
+Important entrypoint:
 
-```python
-api_key=os.environ["OPENAI_API_KEY"]
+```text
+backends/modal/entrypoints.py
 ```
+
+---
+
+# Running the Pipeline
+
+Run:
+
+```bash
+modal run backends/modal/entrypoints.py::main --provider nvidia --model mistralai/devstral-small-2507 --limit 1
+```
+
+---
+
+# Command Arguments
+
+## Provider
 
 Example:
 
-```python
-self.client = OpenAI(
-    api_key=os.environ["OPENAI_API_KEY"]
-)
+```bash
+--provider nvidia
 ```
+
+Currently supported:
+
+- `nvidia`
 
 ---
 
-## 7. Fix Gemini Provider
+## Model
 
-File:
-
-```text
-models/providers/gemini_provider.py
-```
-
-Add:
-
-```python
-api_key=os.environ["GEMINI_API_KEY"]
-```
-
----
-
-## 8. Restore TritonBench Import Symlinks
-
-File:
-
-```text
-backends/modal/image.py
-```
-
-Add:
-
-```python
-.run_commands(
-    (
-        f"ln -s "
-        f"{REPO_DIR}/EVAL/eval_T/0_call_acc.py "
-        f"{REPO_DIR}/EVAL/eval_T/call_acc.py"
-    ),
-
-    (
-        f"ln -s "
-        f"{REPO_DIR}/EVAL/eval_T/1_exe_acc.py "
-        f"{REPO_DIR}/EVAL/eval_T/exe_acc.py"
-    ),
-)
-```
-
-These are NOT patches.
-
-They only create importable aliases:
-
-```python
-import call_acc
-import exe_acc
-```
-
----
-
-## 9. Configure PYTHONPATH
-
-Linux/macOS:
+Example:
 
 ```bash
-export PYTHONPATH=.
+--model mistralai/devstral-small-2507
 ```
 
-Windows PowerShell:
-
-```powershell
-$env:PYTHONPATH="."
-```
+Other models can be substituted if supported by the provider.
 
 ---
 
-## 10. Run First Smoke Test
+## Limit
 
-From repository root:
-
-```bash
-python -m apps.cli.main \
-    --provider nvidia \
-    --model mistralai/devstral-small-2507 \
-    --limit 2
-```
-
----
-
-# Expected Pipeline Flow
-
-```text
-Operator
-    ↓
-Prompt Builder
-    ↓
-LLM Provider
-    ↓
-Modal Generation Job
-    ↓
-Predictions JSONL
-    ↓
-Modal Evaluation Job
-    ↓
-call_acc
-    ↓
-exec_acc
-    ↓
-speedup
-    ↓
-summary metrics
-```
-
----
-
-# Expected Behavior
-
-## Step 1
-
-Modal builds the container image.
-
-First build may take several minutes.
-
----
-
-## Step 2
-
-Generation job starts:
-
-```python
-generate_predictions.remote(...)
-```
-
----
-
-## Step 3
-
-Predictions are saved into the Modal Volume.
-
----
-
-## Step 4
-
-Evaluation job starts on a remote GPU (T4).
-
----
-
-## Step 5
-
-TritonBench phases execute:
-
-- call accuracy
-- execution accuracy
-- efficiency benchmark
-
----
-
-## Step 6
-
-CLI prints a summary:
-
-```json
-{
-  "call_acc": {
-    "passed": 1,
-    "rate": 50.0
-  },
-  "exec_acc": {
-    "passed": 1,
-    "rate": 50.0
-  },
-  "speedup": 1.42
-}
-```
-
----
-
-# Inspect Modal Artifacts
-
-List files stored in the Modal Volume:
-
-```bash
-modal volume ls triton-grammar-constrains-volume
-```
-
-Artifacts are stored under:
-
-```text
-/data/predictions/
-/data/results/
-```
-
----
-
-# Common First Errors
-
-## 1. TritonBench Hardcoded Paths
-
-TritonBench upstream contains bad path assumptions.
-
-If evaluation fails immediately, you will likely need:
-
-- PATCH_CALL_ACC
-- PATCH_EXE_ACC
-
----
-
-## 2. CUDA / Triton Version Mismatch
-
-Can happen depending on Triton version updates.
-
----
-
-## 3. Invalid Generated Triton
-
-Very common initially.
-
-This is expected.
-
----
-
-## 4. API Rate Limits
-
-Especially common with Gemini.
-
----
-
-# Recommended Initial Testing Strategy
-
-DO NOT benchmark the full dataset first.
-
-Recommended progression:
-
-## Stage 1
+Example:
 
 ```bash
 --limit 1
 ```
 
-## Stage 2
+Controls how many TritonBench tasks are evaluated.
+
+Recommended during debugging:
 
 ```bash
---limit 5
+--limit 1
 ```
 
-## Stage 3
+Larger runs:
 
 ```bash
-dataset=simp
+--limit 10
 ```
 
-## Stage 4
+or:
 
 ```bash
-dataset=comp
+--limit 100
 ```
 
-Only scale after the full pipeline works end-to-end.
+---
+
+# What Happens Internally
+
+The pipeline performs:
+
+## Phase 1 — Generation
+
+- Loads benchmark task
+- Builds prompt
+- Sends request to model provider
+- Generates Triton implementation
+
+---
+
+## Phase 2 — Call Accuracy
+
+Runs TritonBench call accuracy evaluation.
+
+Checks:
+
+- Function exists
+- Signature is correct
+- Invocation succeeds
+
+Output example:
+
+```text
+call_acc survivors: 1 / 1
+```
+
+---
+
+## Phase 3 — Execution Accuracy
+
+Runs execution correctness tests.
+
+Checks:
+
+- Numerical correctness
+- Runtime behavior
+- Execution success
+
+Output example:
+
+```text
+exec_acc survivors: 1 / 1
+```
+
+---
+
+## Phase 4 — Efficiency
+
+Runs TritonBench performance evaluation.
+
+Measures:
+
+- Runtime
+- Throughput
+- Performance metrics
+
+---
+
+# Expected First Run Behavior
+
+The first execution may:
+
+- Build multiple Modal images
+- Install PyTorch
+- Clone TritonBench
+- Patch TritonBench evaluation scripts
+
+This can take several minutes.
+
+Subsequent runs are much faster because Modal caches images.
+
+---
+
+# Important Modal Notes
+
+You may see:
+
+```text
+WARNING: The NVIDIA Driver was not detected.
+```
+
+during image build stages.
+
+This is normal for non-GPU build containers.
+
+Actual evaluation containers will use GPUs when configured correctly.
+
+---
+
+# TritonBench Compatibility Patch
+
+This project patches TritonBench paths automatically inside Modal images.
+
+Patched files:
+
+```text
+/opt/TritonBench/EVAL/eval_T/0_call_acc.py
+/opt/TritonBench/EVAL/eval_T/1_exe_acc.py
+```
+
+The pipeline redirects:
+
+```python
+statis_path
+gold_folder
+py_folder
+py_interpreter
+```
+
+to Modal-compatible paths.
+
+No manual TritonBench modifications are required locally.
+
+---
+
+# Common Errors
+
+# 1. Missing NVIDIA_API_KEY
+
+Error:
+
+```text
+KeyError: 'NVIDIA_API_KEY'
+```
+
+Solution:
+
+Ensure the Modal secret exists:
+
+```bash
+modal secret list
+```
+
+Ensure the function includes:
+
+```python
+secrets=[modal.Secret.from_name("triton-grammar-constrains")]
+```
+
+---
+
+# 2. Missing Prompt Template
+
+Error:
+
+```text
+FileNotFoundError: prompts/templates/triton_translation.txt
+```
+
+Solution:
+
+Ensure the file exists:
+
+```text
+prompts/templates/triton_translation.txt
+```
+
+---
+
+# 3. Function Not Defined
+
+Error example:
+
+```text
+NameError: name 'fused_bmm_rmsnorm_gelu_dropout_sub' is not defined
+```
+
+Meaning:
+
+- Infrastructure worked
+- Evaluation worked
+- Model generation failed
+
+Usually caused by:
+
+- Markdown code fences
+- Wrong function name
+- Empty output
+- Invalid generation
+
+---
+
+# Recommended Debugging
+
+Add temporary logging after generation:
+
+```python
+print("=" * 80)
+print(prediction[:3000])
+print("=" * 80)
+```
+
+Also verify generated namespace:
+
+```python
+namespace = {}
+exec(prediction, namespace)
+print(namespace.keys())
+```
+
+---
+
+# Recommended Prompt Constraints
+
+Models should be instructed with constraints such as:
+
+```text
+Return ONLY valid Python code.
+
+Do not include markdown fences.
+
+Do not include explanations.
+
+Preserve the exact function name.
+
+Return a complete implementation.
+```
+
+---
+
+# Example Successful Pipeline Output
+
+```text
+=== Phase 1: call accuracy ===
+
+call_acc survivors: 1 / 1
+
+=== Phase 2: execution accuracy ===
+
+exec_acc survivors: 1 / 1
+
+=== Phase 3: efficiency ===
+```
+
+---
+
+# Development Workflow
+
+Typical iteration loop:
+
+```bash
+modal run backends/modal/entrypoints.py::main --provider nvidia --model mistralai/devstral-small-2507 --limit 1
+```
+
+Then:
+
+1. Inspect generated outputs
+2. Improve prompts
+3. Improve postprocessing
+4. Re-run benchmark
+
+---
+
+# Recommended Initial Testing
+
+Use:
+
+```bash
+--limit 1
+```
+
+until:
+
+- generation format is stable
+- function names are preserved
+- evaluation passes consistently
+
+Then increase benchmark size.
+
+---
+
+# Useful Modal Commands
+
+## View secrets
+
+```bash
+modal secret list
+```
+
+---
+
+## Open Modal dashboard
+
+:contentReference[oaicite:2]{index=2}
+
+---
+
+## Check current profile
+
+```bash
+modal profile current
+```
+
+---
+
+# Current Status
+
+Infrastructure status:
+
+- Modal integration: working
+- TritonBench integration: working
+- Evaluation pipeline: working
+- NVIDIA provider: working
+
+Current remaining challenge:
+
+- Improving model generation quality and formatting consistency
+
+---

@@ -1,1 +1,0 @@
-El JSON Alpaca simplificado.
