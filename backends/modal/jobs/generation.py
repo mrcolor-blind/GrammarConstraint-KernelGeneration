@@ -25,7 +25,7 @@ def extract_code(text: str) -> str:
     s = text.strip()
 
     match = re.search(
-        r"```(?:python|py)?\\s*\\n(.*?)\\n```",
+        r"```(?:python|py)?\s*\n(.*?)\n```",
         s,
         re.DOTALL,
     )
@@ -33,8 +33,8 @@ def extract_code(text: str) -> str:
     if match:
         return match.group(1).strip() + "\n"
 
-    s = re.sub(r"^```(?:python|py)?\\s*\\n?", "", s)
-    s = re.sub(r"\\n?```\\s*$", "", s)
+    s = re.sub(r"^```(?:python|py)?\s*\n?", "", s)
+    s = re.sub(r"\n?```\s*$", "", s)
 
     return s.strip() + "\n"
 
@@ -80,7 +80,31 @@ def generate_predictions(
                 model=model_name,
             )
 
+            print("=" * 80)
+            print("RAW RESPONSE")
+            print("=" * 80)
+            print(raw_response[:5000])
+
             code = extract_code(raw_response)
+
+            print("=" * 80)
+            print("EXTRACTED CODE")
+            print("=" * 80)
+            print(code[:5000])
+
+            namespace = {}
+
+            try:
+                exec(code, namespace)
+
+                print("=" * 80)
+                print("EXEC SUCCESS")
+                print(namespace.keys())
+
+            except Exception as e:
+                print("=" * 80)
+                print("EXEC FAILED")
+                print(e)
 
         except Exception as e:
             code = f"# generation failed: {e}\n"
