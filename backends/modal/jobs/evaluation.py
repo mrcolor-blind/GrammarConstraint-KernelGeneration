@@ -63,7 +63,6 @@ def evaluate_predictions(
 
     print("\n=== Phase 1: call accuracy ===\n")
 
-    
 
     call_acc.call_4file(
         str(pred_full),
