@@ -10,6 +10,7 @@ class ModalRunner:
         dataset: str,
         output_path: str,
         limit: int | None = None,
+        operator: str | None = None,
     ):
         return generate_predictions.remote(
             provider_name=provider,
@@ -17,6 +18,7 @@ class ModalRunner:
             dataset=dataset,
             output_path=output_path,
             limit=limit,
+            operator=operator,
         )
 
     def evaluate(

@@ -11,6 +11,7 @@ def main(
     model: str = "mistralai/devstral-small-2507",
     dataset: str = "simp",
     limit: int = 0,
+    operator: str = ""
 ):
     pipeline = BenchmarkPipeline()
 
@@ -19,6 +20,7 @@ def main(
         model=model,
         dataset=dataset,
         limit=limit or None,
+        operator=operator or None,
     )
 
     print(summary)
