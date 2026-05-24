@@ -11,20 +11,14 @@ class BenchmarkPipeline:
         model: str,
         dataset: str = "simp",
         limit: int | None = None,
+        operator: str | None = None, 
     ):
-        tag = (
-            f"{provider}_"
-            f"{model.replace('/', '_').replace(':', '_')}_"
-            f"{dataset}"
-        )
+        tag = f"{provider}_{model.replace('/', '_').replace(':', '_')}_{dataset}"
+        if operator:
+            tag += f"_{operator}"
 
-        predictions_path = (
-            f"predictions/{tag}.jsonl"
-        )
-
-        results_dir = (
-            f"results/{tag}"
-        )
+        predictions_path = f"predictions/{tag}.jsonl"
+        results_dir = f"results/{tag}"
 
         remote_predictions = self.runner.generate(
             provider=provider,
@@ -32,11 +26,11 @@ class BenchmarkPipeline:
             dataset=dataset,
             output_path=predictions_path,
             limit=limit,
+            operator=operator,
         )
 
         summary = self.runner.evaluate(
             predictions_path=remote_predictions,
             output_subdir=results_dir,
         )
-
         return summary

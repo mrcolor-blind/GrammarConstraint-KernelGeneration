@@ -30,6 +30,11 @@ def main():
         default=None,
     )
 
+    parser.add_argument(
+        "--operator",
+        default=None,
+    )
+
     args = parser.parse_args()
 
     pipeline = BenchmarkPipeline()
@@ -39,6 +44,7 @@ def main():
         model=args.model,
         dataset=args.dataset,
         limit=args.limit,
+        operator=args.operator,
     )
 
     print(json.dumps(summary, indent=2))
