@@ -12,15 +12,13 @@ class NvidiaProvider(BaseProvider):
             base_url="https://integrate.api.nvidia.com/v1",
         )
 
-    def generate(
-        self,
-        messages: list[dict],
-        model: str,
-    ) -> str:
+    def generate(self, messages: list[dict], model: str) -> str:
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
             max_completion_tokens=8192,
+            temperature=0.15,
+            top_p=0.95,
+            seed=42,
         )
-
         return response.choices[0].message.content

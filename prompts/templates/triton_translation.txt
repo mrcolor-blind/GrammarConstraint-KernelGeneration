@@ -6,6 +6,11 @@ Output a single self-contained Python module containing:
 2. Triton kernels
 3. wrapper function
 
-Return ONLY valid Python code inside a single ```python``` block.
-Do not include explanations.
-Do not include tests.
+IMPORTANT:
+Return *only* a Python code block. 
+It must contain the Triton kernel(s) and a wrapper
+function with the EXACT SAME NAME and EXACT SAME 
+SIGNATURE as the PyTorch version above. 
+Implement ONLY the requested operation.
+Do NOT generate fused kernels unless explicitly requested.
+Do NOT include explanations or test code.
