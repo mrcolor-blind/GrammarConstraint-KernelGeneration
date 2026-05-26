@@ -13,12 +13,35 @@ class NvidiaProvider(BaseProvider):
         )
 
     def generate(self, messages: list[dict], model: str) -> str:
-        response = self.client.chat.completions.create(
+        """
+        Stream the response and separate reasoning tokens (e.g. DeepSeek-R1
+        style) from the actual content.  Only the content part is returned so
+        the rest of the pipeline stays unchanged.
+        """
+        stream = self.client.chat.completions.create(
             model=model,
             messages=messages,
             max_completion_tokens=8192,
             temperature=0.15,
             top_p=0.95,
             seed=42,
+            stream=True,
         )
-        return response.choices[0].message.content
+
+        reasoning_parts: list[str] = []
+        content_parts: list[str] = []
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+
+            # reasoning_content is present in DeepSeek-R1 and similar models
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                reasoning_parts.append(reasoning)
+
+            if delta.content:
+                content_parts.append(delta.content)
+
+        return "".join(content_parts)
