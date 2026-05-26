@@ -37,32 +37,28 @@ def extract_code(text: str) -> str:
     return s.strip() + "\n"
 
 def make_operator_name(item: dict, idx: int) -> str:
-    import re
-
     instruction = item["instruction"]
 
     match = re.search(
-        r"Wrapper Entry Information:\s*([a-zA-Z0-9_]+)\(",
+        r"Wrapper Entry Information:\s*(?:def\s+)?([a-zA-Z0-9_]+)\(",
         instruction,
     )
 
     if match:
         fn_name = match.group(1)
-
         return f"{idx:04d}_{fn_name}"
 
     return f"{idx:04d}_unknown_operator"
 
 def extract_operator_name(instruction: str) -> str | None:
+    # Matches both:
+    #   "Wrapper Entry Information: func_name("
+    #   "Wrapper Entry Information: def func_name("
     match = re.search(
-        r"Wrapper Entry Information:\s*([a-zA-Z0-9_]+)\(",
+        r"Wrapper Entry Information:\s*(?:def\s+)?([a-zA-Z0-9_]+)\(",
         instruction,
     )
-
-    if match:
-        return match.group(1)
-
-    return None
+    return match.group(1) if match else None
 
 def write_debug_file(
     debug_dir: Path,
