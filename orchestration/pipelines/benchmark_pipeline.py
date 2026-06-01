@@ -1,9 +1,9 @@
-from orchestration.runners.modal_runner import ModalRunner
+from orchestration.runners.bench_runner import BenchRunner
 
 
 class BenchmarkPipeline:
     def __init__(self):
-        self.runner = ModalRunner()
+        self.runner = BenchRunner()
 
     def run(
         self,

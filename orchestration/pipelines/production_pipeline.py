@@ -1,9 +1,9 @@
-from orchestration.runners.modal_runner import ModalRunner
+from orchestration.runners.prod_runner import ProdRunner
 
 
 class ProductionPipeline:
     def __init__(self):
-        self.runner = ModalRunner()
+        self.runner = ProdRunner()
 
     def run(
         self,
