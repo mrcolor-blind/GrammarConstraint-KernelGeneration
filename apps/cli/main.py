@@ -4,6 +4,9 @@ import json
 from orchestration.pipelines.benchmark_pipeline import (
     BenchmarkPipeline,
 )
+from orchestration.pipelines.production_pipeline import (
+    ProductionPipeline,
+)
 
 
 def main():
@@ -35,9 +38,18 @@ def main():
         default=None,
     )
 
+    parser.add_argument(
+        "--pipeline",
+        choices=["bench", "prod"],
+        default="bench",
+    )
+
     args = parser.parse_args()
 
-    pipeline = BenchmarkPipeline()
+    if args.pipeline == "prod":
+        pipeline = ProductionPipeline()
+    else:
+        pipeline = BenchmarkPipeline()
 
     summary = pipeline.run(
         provider=args.provider,

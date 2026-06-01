@@ -1,6 +1,9 @@
 from orchestration.pipelines.benchmark_pipeline import (
     BenchmarkPipeline,
 )
+from orchestration.pipelines.production_pipeline import (
+    ProductionPipeline,
+)
 
 from backends.modal.app import app
 
@@ -11,9 +14,13 @@ def main(
     model: str = "mistralai/devstral-small-2507",
     dataset: str = "simp",
     limit: int = 0,
-    operator: str = ""
+    operator: str = "",
+    pipeline: str = "bench",
 ):
-    pipeline = BenchmarkPipeline()
+    if pipeline == "prod":
+        pipeline = ProductionPipeline()
+    else:
+        pipeline = BenchmarkPipeline()
 
     summary = pipeline.run(
         provider=provider,
