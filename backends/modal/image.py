@@ -26,7 +26,7 @@ PATCH_PERF = (
     f"""{TRITONBENCH_DIR}/performance_metrics/perf_T/run_bench/multiprocess_gpu_run.py"""
 )
 
-def _create_image():
+def _create_benchmark_image():
     return (
         modal.Image.from_registry(
             "nvidia/cuda:12.4.1-devel-ubuntu22.04",
@@ -65,5 +65,29 @@ def _create_image():
     )
 
 
-benchmark_image = _create_image()
-production_image = _create_image()
+def _create_production_image():
+    return (
+        modal.Image.from_registry(
+            "nvidia/cuda:12.4.1-devel-ubuntu22.04",
+            add_python="3.12",
+        )
+        .apt_install(
+            "git",
+            "build-essential",
+        )
+        .pip_install(
+            "torch==2.5.1",
+            "triton==3.1.0",
+            "numpy<2",
+            "openai>=1.50",
+            "google-genai",
+            "tqdm==4.66.5",
+        )
+        .add_local_dir(
+            str(PROJECT_ROOT),
+            remote_path="/root/project",
+        )
+    )
+
+benchmark_image = _create_benchmark_image()
+production_image = _create_production_image()
