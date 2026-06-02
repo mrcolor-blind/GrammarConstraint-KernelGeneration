@@ -5,24 +5,37 @@ from orchestration.pipelines.production_pipeline import (
     ProductionPipeline,
 )
 
-from backends.modal.app import app
+from backends.modal.app import benchmark_app, production_app
 
 
-@app.local_entrypoint()
-def main(
+@benchmark_app.local_entrypoint()
+def benchmark(
     provider: str = "nvidia",
     model: str = "mistralai/devstral-small-2507",
     dataset: str = "simp",
     limit: int = 0,
     operator: str = "",
-    pipeline: str = "bench",
 ):
-    if pipeline == "prod":
-        pipeline = ProductionPipeline()
-    else:
-        pipeline = BenchmarkPipeline()
+    summary = BenchmarkPipeline().run(
+        provider=provider,
+        model=model,
+        dataset=dataset,
+        limit=limit or None,
+        operator=operator or None,
+    )
 
-    summary = pipeline.run(
+    print(summary)
+
+
+@production_app.local_entrypoint()
+def production(
+    provider: str = "nvidia",
+    model: str = "mistralai/devstral-small-2507",
+    dataset: str = "simp",
+    limit: int = 0,
+    operator: str = "",
+):
+    summary = ProductionPipeline().run(
         provider=provider,
         model=model,
         dataset=dataset,

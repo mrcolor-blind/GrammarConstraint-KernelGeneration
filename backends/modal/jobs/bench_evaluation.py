@@ -9,13 +9,13 @@ import modal
 
 sys.path.append("/root/project")
 
-from backends.modal.app import app, volume
+from backends.modal.app import benchmark_app, volume
 
 DATA_DIR = "/data"
 REPO_DIR = "/opt/TritonBench"
 
 
-@app.function(
+@benchmark_app.function(
     include_source=True,
     gpu="T4",
     timeout=60 * 60 * 6,
