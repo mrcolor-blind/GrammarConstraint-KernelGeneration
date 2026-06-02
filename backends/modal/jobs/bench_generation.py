@@ -9,7 +9,7 @@ import sys
 
 sys.path.append("/root/project")
 
-from backends.modal.app import app, volume
+from backends.modal.app import benchmark_app, volume
 from datasets.tritonbench.loader import TritonBenchLoader
 from models.registry.model_registry import load_provider
 from prompts.builders.triton_prompt_builder import TritonPromptBuilder
@@ -93,7 +93,7 @@ def write_debug_file(
         f.write(code)
 
 
-@app.function(
+@benchmark_app.function(
     include_source=True,
     timeout=60 * 60 * 4,
     cpu=4,
