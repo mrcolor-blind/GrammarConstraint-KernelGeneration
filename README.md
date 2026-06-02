@@ -153,12 +153,18 @@ backends/modal/entrypoints.py
 
 ---
 
-# Running the Pipeline
+# Running the Pipelines
 
-Run:
+For benchmark pipeline Run:
 
 ```bash
-modal run backends/modal/entrypoints.py::main --provider nvidia --model mistralai/devstral-small-2507 --limit 1
+modal run backends/modal/entrypoints.py::benchmark   --provider nvidia   --model nvidia/llama-3.3-nemotron-super-49b-v1   --operator softmax_log     
+```
+
+For production pipeline Run:
+
+```bash
+modal run backends/modal/entrypoints.py::production   --provider nvidia   --model nvidia/llama-3.3-nemotron-super-49b-v1   --operator softmax_log     
 ```
 
 ---
