@@ -1,0 +1,267 @@
+# =============================================================================
+# triton_kernel.ebnf  v2
+# XGrammar EBNF grammar for Triton-DSL kernel modules
+#
+# v2 changes (fixes observed in generation):
+#   - FIXED: infinite loop of repeated statements after wrapper function
+#     Root cause: `module ::= top_item+` never terminates naturally.
+#     Fix: explicit structure  preamble → kernel(s) → wrapper.
+#     After the wrapper's suite closes, the grammar is complete → EOS.
+#
+#   - FIXED: kernel body statements generated at indentation level 0
+#     Root cause: `suite1 ::= body1_stmt+` allowed early termination;
+#     after the suite closed, unindented code was valid as top_item.
+#     Fix: with the new structure, after a kernel closes, only `@` or
+#     `def` are valid → model is FORCED to stay inside the suite or
+#     commit to the next top-level element.
+#
+#   - KEPT: target restriction (no function calls on left of =)
+#     Model now uses tl.store[x] = v instead of tl.store(x) = v.
+#     tl.store[x] = v is valid Python syntax (runtime error, not
+#     syntax error) — semantically wrong but parseable. The model
+#     CAN write tl.store(x, v) as a bare expr; the grammar allows it.
+#
+# Structure enforced:
+#   preamble   → import statements and blank lines
+#   kernels    → one or more @triton.jit decorated functions
+#   wrapper    → one plain Python wrapper function (no decorator)
+#
+# After wrapper's suite1 closes the grammar is satisfied → EOS only.
+# =============================================================================
+
+root ::= module
+
+# ─────────────────────────────────────────────────────────────
+# MODULE STRUCTURE  (explicit, prevents infinite generation)
+# ─────────────────────────────────────────────────────────────
+
+module ::= preamble kernel_section wrapper_section
+
+# Preamble: zero or more import lines and blank lines
+preamble ::= preamble_line*
+preamble_line ::= import_stmt "\n"
+                | "\n"
+
+# Kernel section: one or more @triton.jit decorated functions
+# Each kernel may be followed by blank lines before the next one
+kernel_section ::= triton_kernel+
+triton_kernel  ::= triton_decorator "\n" func_def "\n"*
+
+# The @triton.jit decorator (most common Triton patterns)
+triton_decorator ::= "@triton.jit"
+                   | "@triton.jit()"
+                   | "@" dotted_name
+                   | "@" dotted_name "(" arg_list ")"
+
+# Wrapper section: exactly one plain Python function (no decorator)
+wrapper_section ::= func_def
+
+# ─────────────────────────────────────────────────────────────
+# IMPORTS
+# ─────────────────────────────────────────────────────────────
+
+import_stmt ::= "import " dotted_name
+              | "import " dotted_name " as " name
+              | "from " dotted_name " import " import_targets
+
+import_targets ::= name
+                 | "(" name ("," " " name)* ")"
+
+# ─────────────────────────────────────────────────────────────
+# FUNCTION DEFINITIONS
+# ─────────────────────────────────────────────────────────────
+
+func_def ::= "def " name "(" param_list ")" ":\n" suite1
+           | "def " name "(" param_list ")" " -> " expr ":\n" suite1
+
+# ─────────────────────────────────────────────────────────────
+# BLOCKS — fixed 4-space indentation model
+# ─────────────────────────────────────────────────────────────
+
+# Level 1: inside def  (4 spaces)
+suite1 ::= body1_stmt+
+
+body1_stmt ::= "    " simple_stmt "\n"
+             | "    " return_stmt "\n"
+             | "    " "pass\n"
+             | "    " "break\n"
+             | "    " "continue\n"
+             | "    " "if " expr ":\n" suite2 elif_chain1
+             | "    " "for " name " in " expr ":\n" suite2
+             | "    " "while " expr ":\n" suite2
+             | "    " "with " expr " as " name ":\n" suite2
+
+elif_chain1 ::= ("    elif " expr ":\n" suite2)* ("    else:\n" suite2)?
+
+# Level 2: inside if/for/while at level 1  (8 spaces)
+suite2 ::= body2_stmt+
+
+body2_stmt ::= "        " simple_stmt "\n"
+             | "        " return_stmt "\n"
+             | "        " "pass\n"
+             | "        " "break\n"
+             | "        " "continue\n"
+             | "        " "if " expr ":\n" suite3 elif_chain2
+             | "        " "for " name " in " expr ":\n" suite3
+             | "        " "while " expr ":\n" suite3
+
+elif_chain2 ::= ("        elif " expr ":\n" suite3)* ("        else:\n" suite3)?
+
+# Level 3: inside if/for/while at level 2  (12 spaces)
+suite3 ::= body3_stmt+
+
+body3_stmt ::= "            " simple_stmt "\n"
+             | "            " return_stmt "\n"
+             | "            " "pass\n"
+             | "            " "break\n"
+             | "            " "continue\n"
+
+# ─────────────────────────────────────────────────────────────
+# ASSIGNMENT TARGET
+# name, name.attr, name[idx]  — NOT function calls
+# ─────────────────────────────────────────────────────────────
+
+target        ::= name target_suffix*
+target_suffix ::= "." name
+                | "[" subscript "]"
+
+# ─────────────────────────────────────────────────────────────
+# STATEMENTS
+# ─────────────────────────────────────────────────────────────
+
+simple_stmt ::= target " = " expr
+              | target " += " expr
+              | target " -= " expr
+              | target " *= " expr
+              | target " /= " expr
+              | expr
+
+return_stmt ::= "return " expr
+              | "return"
+
+# ─────────────────────────────────────────────────────────────
+# PARAMETERS
+# ─────────────────────────────────────────────────────────────
+
+param_list ::= "" | params
+params     ::= param ("," " " param)*
+
+param ::= name
+        | name ": " expr
+        | name "=" expr
+        | name ": " expr " = " expr
+        | "*" name
+        | "**" name
+
+# ─────────────────────────────────────────────────────────────
+# CALL ARGUMENTS
+# ─────────────────────────────────────────────────────────────
+
+arg_list  ::= "" | arguments
+arguments ::= argument ("," " " argument)*
+argument  ::= name "=" expr
+            | expr
+
+# ─────────────────────────────────────────────────────────────
+# DOTTED NAMES  (triton.jit, tl.load, torch.Tensor …)
+# ─────────────────────────────────────────────────────────────
+
+dotted_name ::= name ("." name)*
+
+# ─────────────────────────────────────────────────────────────
+# EXPRESSIONS — precedence cascade, no left recursion
+# ─────────────────────────────────────────────────────────────
+
+expr ::= or_expr
+
+or_expr  ::= and_expr (" or " and_expr)*
+and_expr ::= not_expr (" and " not_expr)*
+not_expr ::= "not " cmp_expr | cmp_expr
+
+cmp_expr ::= bitor_expr (cmp_op bitor_expr)*
+cmp_op   ::= " == " | " != " | " < " | " <= " | " > " | " >= "
+           | " is " | " in " | " is not " | " not in "
+
+bitor_expr  ::= bitxor_expr (" | " bitxor_expr)*
+bitxor_expr ::= bitand_expr (" ^ " bitand_expr)*
+bitand_expr ::= shift_expr  (" & " shift_expr)*
+shift_expr  ::= add_expr    ((" << " | " >> ") add_expr)*
+add_expr    ::= mul_expr    ((" + " | " - ") mul_expr)*
+mul_expr    ::= unary_expr  ((" * " | " / " | " // " | " % ") unary_expr)*
+
+unary_expr ::= "-" unary_expr
+             | "~" unary_expr
+             | "+" unary_expr
+             | primary_expr
+
+# ─────────────────────────────────────────────────────────────
+# PRIMARY EXPRESSIONS — atom + postfix suffixes (no left recursion)
+# ─────────────────────────────────────────────────────────────
+
+primary_expr   ::= atom primary_suffix*
+primary_suffix ::= "." name
+                 | "[" subscript "]"
+                 | "(" arg_list ")"
+
+subscript ::= expr ":" expr
+            | expr ":"
+            | ":" expr
+            | ":"
+            | expr
+
+# ─────────────────────────────────────────────────────────────
+# ATOMS
+# ─────────────────────────────────────────────────────────────
+
+atom ::= name
+       | integer
+       | float_lit
+       | string_lit
+       | "True" | "False" | "None"
+       | "(" expr ")"
+       | "(" expr "," expr ")"
+       | "(" ")"
+       | "[" list_items "]"
+       | "{" dict_items "}"
+       | lambda_expr
+
+lambda_expr   ::= "lambda" lambda_params ": " expr
+lambda_params ::= "" | " " name ("," " " name)*
+
+list_items ::= "" | expr ("," " " expr)* ","?
+dict_items ::= "" | dict_pair ("," " " dict_pair)* ","?
+dict_pair  ::= expr ": " expr
+
+# ─────────────────────────────────────────────────────────────
+# IDENTIFIERS
+# ─────────────────────────────────────────────────────────────
+
+name       ::= name_start name_cont*
+name_start ::= [a-zA-Z_]
+name_cont  ::= [a-zA-Z0-9_]
+
+# ─────────────────────────────────────────────────────────────
+# NUMERIC LITERALS
+# ─────────────────────────────────────────────────────────────
+
+integer  ::= "0" | [1-9][0-9]* | "0x" [0-9a-fA-F]+ | "0b" [01]+ | "0o" [0-7]+
+float_lit ::= digits "." digits? exp_part?
+            | "." digits exp_part?
+            | digits exp_part
+
+digits   ::= [0-9]+
+exp_part ::= ("e" | "E") ("+" | "-")? [0-9]+
+
+# ─────────────────────────────────────────────────────────────
+# STRING LITERALS
+# ─────────────────────────────────────────────────────────────
+
+string_lit ::= "\"" dchar* "\""
+             | "'" schar* "'"
+             | "\"\"\"" dchar3* "\"\"\""
+             | "'''" schar3* "'''"
+
+dchar  ::= [^\"\\\n] | "\\" [^\n]
+schar  ::= [^'\\\n]  | "\\" [^\n]
+dchar3 ::= [^\"\\] | "\\" [^\n] | "\"" [^\"] | "\"\"" [^\"]
+schar3 ::= [^'\\]  | "\\" [^\n] | "'" [^']   | "''" [^']

@@ -95,30 +95,56 @@ def evaluate_predictions(
     speedup = None
     efficiency_output = ""
 
+    # Timeout for each efficiency subprocess (seconds).
+    # multiprocess_gpu_run.py can deadlock; this prevents infinite hangs.
+    EFFICIENCY_TIMEOUT = 300  # 5 minutes per step
+
     if exec_survivors:
         perf_root = f"{REPO_DIR}/performance_metrics/perf_T"
 
-        subprocess.run(
-            [
-                sys.executable,
-                "run_bench/write_file.py",
-                "--input_folder_path",
-                str(call_acc_dir),
-                "--results_path",
-                str(perf_results_dir),
-            ],
-            cwd=perf_root,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "run_bench/write_file.py",
+                    "--input_folder_path",
+                    str(call_acc_dir),
+                    "--results_path",
+                    str(perf_results_dir),
+                ],
+                cwd=perf_root,
+                check=True,
+                timeout=EFFICIENCY_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"[efficiency] write_file.py timed out after {EFFICIENCY_TIMEOUT}s — skipping speedup")
+            exec_survivors = []  # skip remaining steps
+        except subprocess.CalledProcessError as e:
+            print(f"[efficiency] write_file.py failed with code {e.returncode} — skipping speedup")
+            exec_survivors = []
 
-        subprocess.run(
-            [
-                sys.executable,
-                "run_bench/multiprocess_gpu_run.py",
-            ],
-            cwd=perf_root,
-            check=True,
-        )
+    if exec_survivors:
+        perf_root = f"{REPO_DIR}/performance_metrics/perf_T"
+
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "run_bench/multiprocess_gpu_run.py",
+                ],
+                cwd=perf_root,
+                check=True,
+                timeout=EFFICIENCY_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"[efficiency] multiprocess_gpu_run.py timed out after {EFFICIENCY_TIMEOUT}s — skipping speedup")
+            exec_survivors = []
+        except subprocess.CalledProcessError as e:
+            print(f"[efficiency] multiprocess_gpu_run.py failed with code {e.returncode} — skipping speedup")
+            exec_survivors = []
+
+    if exec_survivors:
+        perf_root = f"{REPO_DIR}/performance_metrics/perf_T"
 
         eff = subprocess.run(
             [
@@ -130,18 +156,28 @@ def evaluate_predictions(
             cwd=eval_dir,
             capture_output=True,
             text=True,
+            timeout=EFFICIENCY_TIMEOUT,
         )
 
         efficiency_output = eff.stdout
 
+        # Log stderr so efficiency errors are visible instead of silent None
+        if eff.returncode != 0:
+            print(f"[efficiency] 2_efficiency.py exited with code {eff.returncode}")
+            print(f"[efficiency] stderr:\n{eff.stderr}")
+        if eff.stdout:
+            print(f"[efficiency] stdout:\n{eff.stdout}")
+
         for line in eff.stdout.splitlines():
-            if line.startswith("speed up:"):
+            # Case-insensitive match and strip to handle formatting variations
+            line_stripped = line.strip()
+            if line_stripped.lower().startswith("speed up:"):
                 try:
                     speedup = float(
-                        line.split(":", 1)[1].strip()
+                        line_stripped.split(":", 1)[1].strip()
                     )
                 except ValueError:
-                    pass
+                    print(f"[efficiency] Could not parse speedup from line: {repr(line_stripped)}")
 
     volume.commit()
 
