@@ -143,7 +143,6 @@ Para cada operador detectado:
 ┌──────────────────────────────────────────────────────────────────┐
 │                        USUARIO                                    │
 │  Escribe función PyTorch + anotaciones de shapes (@triton)        │
-│  Opcional: elige estrategia de fusión (auto / manual)             │
 └────────────────────────────┬─────────────────────────────────────┘
                              │
                              ▼
@@ -151,7 +150,7 @@ Para cada operador detectado:
 │  1. PARSE         AST → función, firma, lista de ops en orden    │
 │  2. RESOLVE SHAPES Cruzar anotaciones del usuario con el grafo   │
 │  3. RESOLVE CONTEXTO TritonBench → __doc__ → signature → nombre   │
-│  4. PLAN FUSIÓN    Heurísticas automáticas o manual del usuario  │
+│  4. PLAN FUSIÓN    Heurísticas automáticas                       │
 │  5. BUILD PROMPT   Construir mensaje rico para el LLM            │
 │  6. GENERATE       LLM → respuesta → extraer código Triton       │
 │  7. VALIDATE       Compilar, verificar firma, verificar imports  │
@@ -168,7 +167,7 @@ Para cada operador detectado:
 
 ### Alcance del MVP (Minimum Viable Product)
 
-**Incluye:** Funciones puras de PyTorch con shapes anotadas, fusión automática y manual, niveles 1 a 4 (ver Sección 11).
+**Incluye:** Funciones puras de PyTorch con shapes anotadas, fusión automática, niveles 1 a 4 (ver Sección 11).
 
 **No incluye (por ahora):** Clases `nn.Module` con estado interno (pesos, buffers), control de flujo dinámico (if/else/loops), tracing automático de shapes.
 
@@ -212,8 +211,7 @@ def linear_relu(x, weight, bias):
 
 ```python
 # @triton                       ←  marca que esta función debe traducirse
-# @triton fusion=auto           ←  estrategia de fusión: auto | manual | none
-# @triton dtype=float32         ←  tipo de datos por defecto
+# @triton dtype=float32         ←  tipo de datos por defecto (opcional)
 # @in  nombre_param: shape      ←  shape de cada parámetro de entrada
 # @out shape                    ←  shape del tensor de salida
 # @out shape                    ←  múltiples @out para tuplas de retorno
@@ -231,9 +229,7 @@ def linear_relu(x, weight, bias):
 | `(C,) | None` | Puede ser tensor o None | `(D_out,) | None` |
 | `*` | Cualquier número de dimensiones batch | `(*, D_in)` |
 
-### 5.2 Fusión: automática con posibilidad de override manual
-
-**Estrategia automática (heurísticas):**
+### 5.2 Fusión: automática
 
 El planner automático aplica reglas fijas basadas en el tipo de operación y las shapes. Estas reglas son conservadoras (prefieren no fusionar a fusionar mal):
 
@@ -245,18 +241,6 @@ El planner automático aplica reglas fijas basadas en el tipo de operación y la
 | **Reshape/permute/transpose → nuevo grupo** | Cambian el layout en memoria. Fusionar a través de un reshape puede matar la coalescencia de accesos a memoria. |
 | **Dropout → kernel separado** | Requiere generación de números aleatorios y máscara booleana. La semántica de training/eval es compleja. Mejor aislarlo. |
 | **Normalización (BatchNorm, LayerNorm, RMSNorm) → kernel propio** | Son reducciones + element-wise, pero tienen parámetros aprendibles y estadísticas acumuladas. Son kernels bien conocidos que es mejor mantener separados. |
-
-**Override manual:**
-
-El usuario puede forzar una agrupación específica con anotaciones:
-
-```python
-# @triton fusion=manual
-# @triton group: matmul, add, relu
-# @triton group: dropout
-def my_function(x, w, b):
-    ...
-```
 
 ### 5.3 Alcance del MVP: funciones puras + shapes anotadas (Niveles 1-4)
 
@@ -305,23 +289,6 @@ def conv_bn_relu(x, weight, bias, bn_weight, bn_bias, bn_mean, bn_var):
     x = (x - bn_mean[None, :, None, None]) / torch.sqrt(bn_var[None, :, None, None] + 1e-5)
     x = x * bn_weight[None, :, None, None] + bn_bias[None, :, None, None]
     return torch.relu(x)
-```
-
-### Ejemplo con fusión manual
-
-```python
-# @triton fusion=manual
-# @in  x: (B, S, D)
-# @in  w: (D, 4*D)
-# @in  b: (4*D,)
-# @out (B, S, D)
-# @triton group: matmul, add, gelu
-# @triton group: dropout
-def mlp_block(x, w, b):
-    z = x @ w + b          # grupo 1
-    z = torch.nn.functional.gelu(z)  # grupo 1 (fusionado con lo anterior)
-    z = torch.nn.functional.dropout(z, p=0.1, training=True)  # grupo 2 (separado)
-    return z
 ```
 
 ---
@@ -518,7 +485,7 @@ Esta información es crítica para que el LLM genere un wrapper con la firma cor
 
 ### 7.4 Componente 4: Fusion Planner (`fusion/planner.py`)
 
-**Entrada:** `OperationGraph` con shapes resueltos + contextos + preferencia del usuario (`auto` o `manual`).
+**Entrada:** `OperationGraph` con shapes resueltos + contextos.
 
 **Salida:** `FusionPlan` — agrupación de operaciones en kernels.
 
@@ -526,7 +493,7 @@ Esta información es crítica para que el LLM genere un wrapper con la firma cor
 @dataclass
 class FusionPlan:
     groups: list[FusedGroup]
-    strategy: str            # "auto" | "manual" | "none"
+    strategy: str            # "auto"
 
 @dataclass
 class FusedGroup:
@@ -632,8 +599,8 @@ Group 1: [conv2d, sub, div, mul, add, relu]
 
 ```
 You are an expert in Triton programming. Given a PyTorch function and
-its complete mathematical description, generate a self-contained Python
-module containing:
+its complete mathematical description, generate a self-contained
+Python module containing:
 
 1. Required imports (torch, triton, triton.language as tl)
 2. One Triton kernel per fused operation group
@@ -755,8 +722,8 @@ class PipelineStage(ABC):
 
 | Etapa | Intento 1 | Intento 2 | Intento 3 |
 |-------|-----------|-----------|-----------|
-| **PARSE** | `ast.parse()` normal | Reintentar quitando comentarios no estándar | Pedir al usuario que simplifique el código |
-| **SHAPES** | Leer anotaciones `@in`/`@out` | Buscar type hints, docstrings, nombres de variable | Pedir shapes al usuario (CLI prompt) |
+| **PARSE** | `ast.parse()` normal | Reintentar quitando comentarios no estándar | Emitir error detallado y abortar |
+| **SHAPES** | Leer anotaciones `@in`/`@out` | Buscar type hints, docstrings, nombres de variable | Emitir error con listado de shapes faltantes y abortar |
 | **CONTEXT** | TritonBench JSON | `__doc__` del operador | Solo enviar nombre del operador al LLM |
 | **FUSION** | Heurísticas estándar | Reglas más agresivas (fusionar todo) | No fusionar (1 kernel por operación) |
 | **GENERATE** | Prompt normal | Prompt + errores del intento anterior | Prompt + "think step by step" + ejemplos |
@@ -769,17 +736,17 @@ Este es el más importante. Si el código generado no pasa validación:
 ```
 Intento 1: Prompt normal
   → Error: "import triton.lang as tl" (API alucinada)
-  
+
 Intento 2: Mismo prompt + feedback:
   "Your previous attempt had errors:
    - Invalid import: 'triton.lang' does not exist.
      Use 'import triton.language as tl' instead.
    Please fix and regenerate."
   → Error: "NameError: name 'tl.float32' is not defined"
-  
+
 Intento 3: Prompt + feedback + "think step by step":
   "Think carefully about each line before writing it.
-   Previous errors: ... 
+   Previous errors: ...
    Valid Triton imports: import triton; import triton.language as tl
    Valid Triton APIs: tl.load(), tl.store(), tl.arange(), tl.dot(),
      tl.reduce(), tl.maximum(), tl.sqrt(), tl.exp(), tl.zeros_like()"
@@ -1045,15 +1012,13 @@ def scaled_dot_product_attention(q, k, v, scale):
 ### Nivel 6 — Subgrafo transformer MLP (stretch goal)
 
 ```python
-# @triton fusion=manual
+# @triton
 # @in  x:  (B, S, D)
 # @in  w1: (D, 4*D)
 # @in  b1: (4*D,)
 # @in  w2: (4*D, D)
 # @in  b2: (D,)
 # @out (B, S, D)
-# @triton group: linear, add, gelu
-# @triton group: dropout
 def transformer_mlp(x, w1, b1, w2, b2):
     x = F.linear(x, w1, b1)
     x = F.gelu(x)
@@ -1063,7 +1028,7 @@ def transformer_mlp(x, w1, b1, w2, b2):
     return x
 ```
 
-**Qué demuestra:** Traducción de un programa completo (no solo un operador). Decisión automática de fusión. **Si el sistema, sin intervención humana, parte esto en kernels óptimos y obtiene speedup, es nivel publicación.**
+**Qué demuestra:** Traducción de un programa completo (no solo un operador). El planificador de fusión automática debe detectar: grupo 1 = `[linear, add, gelu]`, grupo 2 = `[dropout]`, grupo 3 = `[linear, add]`, grupo 4 = `[dropout]`. **Si el sistema, sin intervención humana, parte esto en kernels óptimos y obtiene speedup, es nivel publicación.**
 
 ---
 
@@ -1080,7 +1045,7 @@ def transformer_mlp(x, w1, b1, w2, b2):
 | **P6** | Integrar en CLI (`apps/cli/main.py` subcomando `translate`) | P4, P5 | `python apps/cli/main.py translate --file test.py --local` corre el pipeline completo |
 | **P7** | Repair loop (3 intentos por etapa, `PipelineStage` ABC) | P5, P6 | Forzar error en GENERATE (prompt malo), verificar que reintenta. Probar con bessel_j1 (operador sin docstring) |
 | **P8** | Conectar con Modal (`backends/modal/jobs/translation.py`) | P6 | Ejecutar en GPU real. Correr evaluación de TritonBench (call + exec accuracy) sobre el código generado |
-| **P9** | UI futura (streamlit/gradio) — opcional, post-MVP | P6 | Interfaz web para pegar código, elegir fusión, ver resultado |
+| **P9** | UI futura (streamlit/gradio) — opcional, post-MVP | P6 | Interfaz web para pegar código, ver resultado |
 
 **Tiempo estimado por paso:** P0–P2: 1-2 días cada uno. P3–P5: 2-3 días cada uno. P6–P8: 1-2 días cada uno. **Total: 2-3 semanas para MVP funcional.**
 
@@ -1107,7 +1072,7 @@ GrammarConstraint-KernelGeneration/
 │
 ├── fusion/                              # [NUEVO] Planificación de fusión
 │   ├── __init__.py
-│   └── planner.py                       # P3 — Heurísticas + manual
+│   └── planner.py                       # P3 — Heurísticas automáticas
 │
 ├── prompts/
 │   ├── builders/
@@ -1156,8 +1121,8 @@ GrammarConstraint-KernelGeneration/
 | **LLM alucina APIs de Triton** (`triton.lang`, `tl.mm()`) | Alta | Alto | Validator detecta estas APIs. Repair loop corrige (3 intentos). System prompt con lista explícita de APIs válidas. |
 | **LLM no sabe generar kernel de reducción** (mean, var, sum) | Media | Alto | Incluir ejemplos de reducción en el prompt. Usar Tier 1 (TritonBench) que tiene kernels de referencia. |
 | **`__doc__` vacío para operadores esotéricos** | Media | Medio | Tier 4 fallback: el LLM usa su conocimiento previo. Para operadores muy esotéricos, el usuario tendrá que proporcionar más contexto. |
-| **Shapes mal inferidas** (broadcasting complejo) | Media | Alto | El usuario es responsable de proveer shapes correctas. El shape resolver valida consistencia y emite warnings. |
-| **Fusión automática subóptima** (demasiado agresiva o conservadora) | Alta | Bajo | Las reglas son conservadoras por diseño (prefieren no fusionar). El usuario puede override con `fusion=manual`. |
+| **Shapes mal inferidas** (broadcasting complejo) | Media | Alto | El usuario es responsable de proveer shapes correctas. El shape resolver valida consistencia y emite warnings. Si no se pueden resolver, el pipeline aborta con diagnóstico. |
+| **Fusión automática subóptima** (demasiado agresiva o conservadora) | Alta | Bajo | Las reglas son conservadoras por diseño (prefieren no fusionar). Los repair loops tienen fallbacks progresivos (más agresivo → sin fusión). |
 | **Código generado no compila en GPU** (error de Triton en runtime) | Media | Alto | P6 (Modal) ejecuta compilación real. Si falla, el repair loop reintenta con el mensaje de error de Triton. |
 | **Speedup negativo** (el kernel Triton es más lento que PyTorch) | Alta | Medio | Aceptable para MVP. El foco es corrección funcional, no rendimiento. El tuning de BLOCK_SIZE y grid se puede hacer después. |
 | **Cambios en la API de PyTorch** (nuevos operadores, deprecated) | Baja | Bajo | `__doc__` y `inspect.signature` siempre reflejan la versión instalada. El JSON de TritonBench puede actualizarse periódicamente. |
@@ -1280,5 +1245,3 @@ Keyword args:
 | `torch.special.airy_ai` | 5 | ❌ | ❌ | ❌ | **Baja** |
 | `torch.bessel_j1` | 5 | ❌ | ❌ | ❌ | **Baja** |
 | `torch.zeta` | 5 | ✅ | ❌ | ❌ | Baja |
-
-EOF
