@@ -26,6 +26,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from models.interfaces.base_provider import BaseProvider
+from typing import Optional, Union
 
 # Carga la gramática una sola vez al importar el módulo
 _GRAMMAR_PATH = Path(__file__).parent.parent.parent / "grammars" / "triton_kernel.ebnf"
@@ -38,7 +39,7 @@ class VllmGrammarProvider(BaseProvider):
     El servidor aplica XGrammar internamente en cada paso de decodificación.
     """
 
-    def __init__(self, base_url: str | None = None):
+    def __init__(self, base_url:Optional[ str ] = None):
         self.base_url = base_url or os.environ.get(
             "VLLM_BASE_URL", "http://localhost:8000/v1"
         )

@@ -1,3 +1,4 @@
+from typing import Optional, Union
 class ModalRunner:
     def __init__(self, pipeline: str = "benchmark"):
         self.pipeline = pipeline
@@ -19,8 +20,8 @@ class ModalRunner:
         model: str,
         dataset: str,
         output_path: str,
-        limit: int | None = None,
-        operator: str | None = None,
+        limit:Optional[ int ] = None,
+        operator:Optional[ str ] = None,
     ):
         return self.generate_predictions.remote(
             provider_name=provider,
