@@ -229,8 +229,8 @@ class ValidationStage(PipelineStage):
             return StageResult(
                 success=result.passed,
                 data=result,
-                errors=result.errors,
-                warnings=result.warnings,
+                error="",
+                warnings=result.errors + result.warnings,
             )
         except Exception as e:
             return StageResult(success=False, error=str(e))
@@ -247,6 +247,66 @@ class ValidationStage(PipelineStage):
             # For MVP, we'll let the generation stage retry instead
             pass
         return ctx
+
+
+class GpuValidationStage(PipelineStage):
+    """GPU compilation + execution smoke test via Modal."""
+    name = "GPU_VALIDATE"
+    max_attempts = 1  # No repair loop; just report
+
+    def __init__(self, run_id: str, concrete_dims: dict[str, int]):
+        super().__init__()
+        self.run_id = run_id
+        self.concrete_dims = concrete_dims
+
+    def _try(self, ctx: PipelineContext) -> StageResult:
+        if not ctx.generated_code:
+            return StageResult(success=False, error="No generated code available.")
+        if ctx.operation_graph is None:
+            return StageResult(success=False, error="No OperationGraph available.")
+
+        # Lazy import to avoid Modal dependency on local runs
+        try:
+            from backends.modal.jobs.translate_validation import translate_validation
+        except ImportError as e:
+            return StageResult(
+                success=False,
+                error=f"Modal not available for GPU validation: {e}",
+            )
+
+        # Build input_shapes dict from parameters
+        input_shapes = {}
+        for p in ctx.operation_graph.parameters:
+            if p.shape:
+                input_shapes[p.name] = p.shape
+
+        dims_str = ",".join(f"{k}={v}" for k, v in self.concrete_dims.items())
+
+        try:
+            result_dict = translate_validation.remote(
+                generated_code=ctx.generated_code,
+                function_name=ctx.operation_graph.function_name,
+                param_names=[p.name for p in ctx.operation_graph.parameters],
+                input_shapes=input_shapes,
+                concrete_dims_str=dims_str,
+            )
+            from models.domain import GpuValidationResult
+            result = GpuValidationResult(
+                compilation_pass=result_dict.get("compilation_pass", False),
+                execution_pass=result_dict.get("execution_pass", False),
+                errors=result_dict.get("errors", []),
+                output_shape=result_dict.get("output_shape"),
+                device=result_dict.get("device"),
+            )
+            ctx.gpu_validation_result = result
+            # GPU validation is informational; stage always "succeeds" so pipeline continues
+            return StageResult(
+                success=True,
+                data=result,
+                warnings=result.errors,
+            )
+        except Exception as e:
+            return StageResult(success=False, error=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -275,17 +335,31 @@ def _extract_code(text: str) -> str:
 class TranslationPipeline:
     """Runs the full PyTorch → Triton translation pipeline."""
 
-    def __init__(self, provider_name: str, model_name: str):
+    def __init__(
+        self,
+        provider_name: str,
+        model_name: str,
+        modal_validate: bool = False,
+        concrete_dims: Optional[dict[str, int]] = None,
+        debug_root: Optional[Path] = None,
+    ):
         self.provider_name = provider_name
         self.model_name = model_name
+        self.modal_validate = modal_validate
+        self.concrete_dims = concrete_dims or {}
+        self.debug_root = debug_root
 
-    def run(self, file_path: str, source_code:Optional[ str ] = None) -> PipelineContext:
+    def run(self, file_path: str, source_code: Optional[str] = None) -> PipelineContext:
         """
         Execute the full pipeline.
         Returns the final PipelineContext with all artifacts and results.
         """
         if source_code is None:
             source_code = Path(file_path).read_text(encoding="utf-8")
+
+        # Override debug root for Modal volume if provided
+        if self.debug_root:
+            debug_logger.set_debug_root(self.debug_root)
 
         run_id = debug_logger.make_run_id(
             self._guess_function_name(source_code)
@@ -322,6 +396,23 @@ class TranslationPipeline:
                 )
                 debug_logger.write_summary(debug_dir, ctx)
                 return ctx
+
+        # Optional GPU validation on Modal (informational, does not block)
+        if self.modal_validate:
+            gpu_stage = GpuValidationStage(run_id=run_id, concrete_dims=self.concrete_dims)
+            logger.info(f"[{run_id}] Running optional stage: {gpu_stage.name}")
+            gpu_result = gpu_stage.run(ctx)
+            self._persist_stage_artifact(debug_dir, gpu_stage.name, ctx, gpu_result)
+            if gpu_result.success and ctx.gpu_validation_result:
+                gvr = ctx.gpu_validation_result
+                logger.info(
+                    f"[{run_id}] GPU validation: compilation={'PASS' if gvr.compilation_pass else 'FAIL'}, "
+                    f"execution={'PASS' if gvr.execution_pass else 'FAIL'}"
+                )
+            else:
+                logger.warning(
+                    f"[{run_id}] GPU validation stage failed: {gpu_result.error}"
+                )
 
         # Final success
         debug_logger.persist_final_code(debug_dir, ctx.generated_code)
@@ -362,3 +453,5 @@ class TranslationPipeline:
                 debug_logger.persist_extracted_code(debug_dir, ctx.generated_code)
         elif stage_name == "VALIDATE" and ctx.validation_result:
             debug_logger.persist_validation(debug_dir, ctx.validation_result)
+        elif stage_name == "GPU_VALIDATE" and ctx.gpu_validation_result:
+            debug_logger.persist_gpu_validation(debug_dir, ctx.gpu_validation_result)

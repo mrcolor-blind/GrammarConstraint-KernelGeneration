@@ -46,9 +46,14 @@ def cmd_translate(args):
         print("Pipeline will run up to prompt generation, no LLM call.")
         print("(Not yet implemented — running full pipeline)")
 
+    # Parse concrete dims for optional GPU validation
+    concrete_dims = _parse_concrete_dims(args.dims) if args.dims else {}
+
     pipeline = TranslationPipeline(
         provider_name=args.provider,
         model_name=args.model,
+        modal_validate=args.modal_validate,
+        concrete_dims=concrete_dims,
     )
 
     ctx = pipeline.run(
@@ -76,14 +81,28 @@ def cmd_translate(args):
     print(f"\nRun ID: {ctx.run_id}")
     if ctx.validation_result:
         vr = ctx.validation_result
-        print(f"Validation: {'PASS' if vr.passed else 'FAIL'}")
+        print(f"Static Validation: {'PASS' if vr.passed else 'FAIL'}")
         if vr.errors:
             for e in vr.errors:
                 print(f"  Error: {e}")
         if vr.warnings:
             for w in vr.warnings:
                 print(f"  Warning: {w}")
-    print(f"Debug artifacts: debug/translations/{ctx.run_id}/")
+
+    if ctx.gpu_validation_result:
+        gvr = ctx.gpu_validation_result
+        print(f"\nGPU Validation (Modal):")
+        print(f"  Compilation: {'PASS' if gvr.compilation_pass else 'FAIL'}")
+        print(f"  Execution: {'PASS' if gvr.execution_pass else 'FAIL'}")
+        if gvr.output_shape:
+            print(f"  Output shape: {gvr.output_shape}")
+        if gvr.device:
+            print(f"  Device: {gvr.device}")
+        if gvr.errors:
+            for e in gvr.errors:
+                print(f"  Error: {e}")
+
+    print(f"\nDebug artifacts: debug/translations/{ctx.run_id}/")
 
     if not ctx.generated_code or (ctx.validation_result and not ctx.validation_result.passed):
         sys.exit(1)
@@ -224,6 +243,16 @@ def main():
         "--dry-run",
         action="store_true",
         help="Run pipeline up to prompt, skip LLM call",
+    )
+    translate_parser.add_argument(
+        "--modal-validate",
+        action="store_true",
+        help="After generation, compile and execute on a Modal GPU (informational)",
+    )
+    translate_parser.add_argument(
+        "--dims",
+        default=None,
+        help='Concrete dimensions for symbolic shapes when validating on GPU, e.g., "N=128,D_in=256"',
     )
     translate_parser.add_argument(
         "-v", "--verbose",

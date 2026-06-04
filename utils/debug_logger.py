@@ -21,6 +21,12 @@ from models.domain import (
 _DEBUG_ROOT = Path("debug") / "translations"
 
 
+def set_debug_root(path: Path):
+    """Override the default debug root (e.g., for Modal volume /data/translations)."""
+    global _DEBUG_ROOT
+    _DEBUG_ROOT = path
+
+
 def _to_json(obj):
     """Serialize dataclasses / lists / dicts for JSON output."""
     if hasattr(obj, "__dataclass_fields__"):
@@ -119,6 +125,15 @@ def persist_validation(debug_dir: Path, result: ValidationResult):
     )
 
 
+def persist_gpu_validation(debug_dir: Path, result):
+    from models.domain import GpuValidationResult
+    if isinstance(result, GpuValidationResult):
+        (debug_dir / "09b_gpu_validation.json").write_text(
+            json.dumps(_to_json(result), indent=2),
+            encoding="utf-8",
+        )
+
+
 def persist_final_code(debug_dir: Path, code: str):
     (debug_dir / "10_final.py").write_text(code, encoding="utf-8")
 
@@ -151,6 +166,21 @@ def write_summary(debug_dir: Path, ctx: PipelineContext):
             lines.append("- Warnings:")
             for w in vr.warnings:
                 lines.append(f"  - {w}")
+
+    if ctx.gpu_validation_result:
+        lines.append("")
+        lines.append("## GPU Validation (Modal)")
+        gvr = ctx.gpu_validation_result
+        lines.append(f"- Compilation: {'PASS' if gvr.compilation_pass else 'FAIL'}")
+        lines.append(f"- Execution: {'PASS' if gvr.execution_pass else 'FAIL'}")
+        if gvr.output_shape:
+            lines.append(f"- Output shape: {gvr.output_shape}")
+        if gvr.device:
+            lines.append(f"- Device: {gvr.device}")
+        if gvr.errors:
+            lines.append("- Errors:")
+            for e in gvr.errors:
+                lines.append(f"  - {e}")
 
     if ctx.evaluation_result:
         lines.append("")

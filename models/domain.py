@@ -97,6 +97,16 @@ class ValidationResult:
 
 
 @dataclass
+class GpuValidationResult:
+    """Result of GPU compilation + execution smoke test on Modal."""
+    compilation_pass: bool
+    execution_pass: bool
+    errors: list[str] = field(default_factory=list)
+    output_shape: Optional[str] = None
+    device: Optional[str] = None
+
+
+@dataclass
 class PipelineContext:
     """Mutable context passed through every pipeline stage."""
     source_code: str = ""
@@ -109,5 +119,6 @@ class PipelineContext:
     raw_responses: list[str] = field(default_factory=list)
     prompt_messages: list[dict] = field(default_factory=list)
     validation_result: Optional[ValidationResult] = None
+    gpu_validation_result: Optional[GpuValidationResult] = None
     attempt_counts: dict[str, int] = field(default_factory=dict)
     evaluation_result: Optional[dict] = None
