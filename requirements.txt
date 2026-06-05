@@ -5,3 +5,9 @@ google-genai
 xgrammar>=0.1.30
 modal==1.4.3
 
+# Service dependencies
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.0
+pydantic-settings>=2.0.0
+
