@@ -3,3 +3,7 @@ venv
 __pycache__/
 predictions
 debug/
+/data/
+*.db
+.env
+

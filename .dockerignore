@@ -1,0 +1,15 @@
+.venv
+.git
+.gitignore
+.pytest_cache
+*.db
+data/
+debug/
+predictions/
+__pycache__/
+*.pyc
+.env
+.env.example
+SERVICE-PLAN.md
+Notebooks/
+scripts/

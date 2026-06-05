@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: service/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - MODAL_TOKEN_ID=${MODAL_TOKEN_ID}
+      - MODAL_TOKEN_SECRET=${MODAL_TOKEN_SECRET}
+      - DATABASE_URL=sqlite:///data/service.db
+    volumes:
+      # Persistent data
+      - ./debug:/app/debug
+      - ./data:/app/data
+      # Source code mounts (approach B: changes reflect instantly without rebuild)
+      - ./service:/app/service
+      - ./orchestration:/app/orchestration
+      - ./backends:/app/backends
+      - ./models:/app/models
+      - ./evaluation:/app/evaluation
+      - ./code_analysis:/app/code_analysis
+      - ./context:/app/context
+      - ./fusion:/app/fusion
+      - ./prompts:/app/prompts
+      - ./validation:/app/validation
+      - ./utils:/app/utils
+      - ./apps:/app/apps
+      - ./grammars:/app/grammars
+      - ./datasets:/app/datasets
+      - ./requirements.txt:/app/requirements.txt

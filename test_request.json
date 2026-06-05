@@ -1,0 +1,1 @@
+{"source_code": "# @triton\n# @in  x:      (N, D_in)\n# @in  weight: (D_out, D_in)\n# @in  bias:   (D_out,)\n# @out (N, D_out)\ndef linear_relu(x, weight, bias):\n    z = x @ weight.T + bias\n    return torch.relu(z)\n", "provider": "nvidia-grammar", "dims": {"N": 128, "D_in": 256, "D_out": 512}}
