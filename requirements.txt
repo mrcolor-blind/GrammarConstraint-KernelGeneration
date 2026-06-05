@@ -3,4 +3,5 @@ google-genai
 
 # Grammar-constrained decoding
 xgrammar>=0.1.30
+modal==1.4.3
 
