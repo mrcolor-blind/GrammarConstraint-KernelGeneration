@@ -10,6 +10,7 @@ _ELEMENT_WISE = {
     "torch.add", "torch.sub", "torch.mul", "torch.div",
     "torch.floor_divide", "torch.remainder", "torch.pow",
     "torch.relu", "torch.gelu", "torch.sigmoid", "torch.tanh",
+    "torch.erf", "torch.erfc",
     "torch.exp", "torch.log", "torch.sqrt", "torch.abs",
     "torch.nn.functional.relu", "torch.nn.functional.gelu",
     "torch.nn.functional.sigmoid",
