@@ -47,11 +47,12 @@ preamble_line ::= import_stmt "\n"
 kernel_section ::= triton_kernel+
 triton_kernel  ::= triton_decorator "\n" func_def "\n"*
 
-# The @triton.jit decorator (most common Triton patterns)
+# SOLO @triton.jit — cualquier otro @nombre es un decorador inventado.
+# Antes se permitía "@" dotted_name que causaba que el modelo metiera
+# funciones helper con decoradores fabricados (@if_approximate_none, etc.)
+# y los parseara como kernels legítimos, corrompiendo la estructura del módulo.
 triton_decorator ::= "@triton.jit"
                    | "@triton.jit()"
-                   | "@" dotted_name
-                   | "@" dotted_name "(" arg_list ")"
 
 # Wrapper section: exactly one plain Python function (no decorator)
 wrapper_section ::= func_def
@@ -81,11 +82,13 @@ func_def ::= "def " name "(" param_list ")" ":\n" suite1
 # Level 1: inside def  (4 spaces)
 suite1 ::= body1_stmt+
 
+# pass/break/continue ELIMINADOS de level-1 por dos razones:
+#   1. Son semánticamente inválidos en Python a nivel de función (fuera de loop).
+#   2. Causaban loops infinitos: después de un return, el modelo repetía
+#      "    pass\n" x1000 porque body1_stmt+ sigue siendo válido.
+# pass/break/continue siguen disponibles en body2_stmt y body3_stmt (dentro de loops).
 body1_stmt ::= "    " simple_stmt "\n"
              | "    " return_stmt "\n"
-             | "    " "pass\n"
-             | "    " "break\n"
-             | "    " "continue\n"
              | "    " "if " expr ":\n" suite2 elif_chain1
              | "    " "for " name " in " expr ":\n" suite2
              | "    " "while " expr ":\n" suite2
@@ -134,7 +137,14 @@ simple_stmt ::= target " = " expr
               | target " -= " expr
               | target " *= " expr
               | target " /= " expr
+              | assert_stmt
               | expr
+
+# assert_stmt — keyword explícito para evitar que el modelo caiga en
+# el path expr donde "assert" se trata como nombre y "not" solo puede
+# continuar como cmp_op " not in ", generando bucles infinitos de != 0.
+assert_stmt ::= "assert " expr
+              | "assert " expr ", " expr
 
 return_stmt ::= "return " expr
               | "return"

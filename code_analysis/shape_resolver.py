@@ -185,7 +185,7 @@ def _infer_shape(op: OpNode, known_shapes: dict[str, Union[tuple, str, None]]) -
         "torch.add", "torch.sub", "torch.mul", "torch.div",
         "torch.floor_divide", "torch.remainder", "torch.pow",
         "torch.relu", "torch.gelu", "torch.sigmoid", "torch.tanh",
-        "torch.exp", "torch.log", "torch.sqrt", "torch.abs",
+        "torch.erf", "torch.erfc", "torch.exp", "torch.log", "torch.sqrt", "torch.abs",
         "torch.nn.functional.relu", "torch.nn.functional.gelu",
         "torch.nn.functional.sigmoid", "torch.nn.functional.tanh",
         "torch.clamp", "torch.minimum", "torch.maximum",
