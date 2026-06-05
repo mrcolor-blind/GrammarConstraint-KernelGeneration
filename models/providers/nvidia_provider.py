@@ -4,11 +4,12 @@ from pathlib import Path
 from openai import OpenAI
 
 from models.interfaces.base_provider import BaseProvider
+from typing import Optional, Union
 
 # Carga la gramática una sola vez al importar el módulo.
 # Path relativo a este archivo → grammars/triton_kernel.ebnf
 _GRAMMAR_PATH = Path(__file__).parent.parent.parent / "grammars" / "triton_kernel.ebnf"
-_TRITON_GRAMMAR: str | None = None
+_TRITON_GRAMMAR:Optional[ str ] = None
 
 def _load_grammar() -> str:
     global _TRITON_GRAMMAR
@@ -50,7 +51,7 @@ class NvidiaProvider(BaseProvider):
 
     def __init__(
         self,
-        base_url: str | None = None,
+        base_url:Optional[ str ] = None,
         grammar_constrained: bool = False,
     ):
         self.base_url = base_url or os.environ.get(

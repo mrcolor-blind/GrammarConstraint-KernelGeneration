@@ -1,5 +1,6 @@
 from backends.modal.jobs.bench_evaluation import benchEvaluation
 from backends.modal.jobs.bench_generation import benchGeneration
+from typing import Optional, Union
 
 
 class BenchRunner:
@@ -9,8 +10,8 @@ class BenchRunner:
         model: str,
         dataset: str,
         output_path: str,
-        limit: int | None = None,
-        operator: str | None = None,
+        limit:Optional[ int ] = None,
+        operator:Optional[ str ] = None,
     ):
         return benchGeneration.remote(
             provider_name=provider,

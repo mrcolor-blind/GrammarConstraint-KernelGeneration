@@ -1,5 +1,6 @@
 from backends.modal.jobs.prod_evaluation import prodEvaluation
 from backends.modal.jobs.prod_generation import prodGeneration
+from typing import Optional, Union
 
 
 class ProdRunner:
@@ -9,8 +10,8 @@ class ProdRunner:
         model: str,
         dataset: str,
         output_path: str,
-        limit: int | None = None,
-        operator: str | None = None,
+        limit:Optional[ int ] = None,
+        operator:Optional[ str ] = None,
     ):
         return prodGeneration.remote(
             provider_name=provider,

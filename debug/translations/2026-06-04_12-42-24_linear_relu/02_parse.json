@@ -1,0 +1,66 @@
+{
+  "function_name": "linear_relu",
+  "signature": "linear_relu(x, weight, bias)",
+  "parameters": [
+    {
+      "name": "x",
+      "kind": "POSITIONAL_OR_KEYWORD",
+      "default": null,
+      "annotation": null,
+      "shape": null
+    },
+    {
+      "name": "weight",
+      "kind": "POSITIONAL_OR_KEYWORD",
+      "default": null,
+      "annotation": null,
+      "shape": null
+    },
+    {
+      "name": "bias",
+      "kind": "POSITIONAL_OR_KEYWORD",
+      "default": null,
+      "annotation": null,
+      "shape": null
+    }
+  ],
+  "operations": [
+    {
+      "op_name": "torch.matmul",
+      "torch_path": "torch.matmul",
+      "input_vars": [
+        "x",
+        "weight.T"
+      ],
+      "output_var": "_t1",
+      "kwargs": {},
+      "lineno": 7,
+      "shape": null
+    },
+    {
+      "op_name": "torch.add",
+      "torch_path": "torch.add",
+      "input_vars": [
+        "x @ weight.T",
+        "bias"
+      ],
+      "output_var": "z",
+      "kwargs": {},
+      "lineno": 7,
+      "shape": null
+    },
+    {
+      "op_name": "torch.relu",
+      "torch_path": "torch.relu",
+      "input_vars": [
+        "z"
+      ],
+      "output_var": "_t3",
+      "kwargs": {},
+      "lineno": 8,
+      "shape": null
+    }
+  ],
+  "output_var": "torch.relu(z)",
+  "source_code": "# @triton\n# @in  x:      (N, D_in)\n# @in  weight: (D_out, D_in)\n# @in  bias:   (D_out,)\n# @out (N, D_out)\ndef linear_relu(x, weight, bias):\n    z = x @ weight.T + bias\n    return torch.relu(z)\n"
+}

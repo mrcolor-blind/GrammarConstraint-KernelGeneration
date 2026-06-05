@@ -1,4 +1,5 @@
 from orchestration.runners.bench_runner import BenchRunner
+from typing import Optional, Union
 
 
 class BenchmarkPipeline:
@@ -10,8 +11,8 @@ class BenchmarkPipeline:
         provider: str,
         model: str,
         dataset: str = "simp",
-        limit: int | None = None,
-        operator: str | None = None, 
+        limit:Optional[ int ] = None,
+        operator:Optional[ str ] = None, 
     ):
         tag = f"{provider}_{model.replace('/', '_').replace(':', '_')}_{dataset}"
         if operator:

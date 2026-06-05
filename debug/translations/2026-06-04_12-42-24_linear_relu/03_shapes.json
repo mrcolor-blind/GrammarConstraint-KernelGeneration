@@ -1,0 +1,25 @@
+{
+  "op_0_torch.matmul": {
+    "input_vars": [
+      "x",
+      "weight.T"
+    ],
+    "output_var": "_t1",
+    "shape": "(N, D_out)"
+  },
+  "op_1_torch.add": {
+    "input_vars": [
+      "x @ weight.T",
+      "bias"
+    ],
+    "output_var": "z",
+    "shape": "(N, D_out)"
+  },
+  "op_2_torch.relu": {
+    "input_vars": [
+      "z"
+    ],
+    "output_var": "_t3",
+    "shape": "(N, D_out)"
+  }
+}

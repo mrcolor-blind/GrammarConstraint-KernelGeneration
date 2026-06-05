@@ -13,6 +13,7 @@ from backends.modal.app import benchmark_app, volume
 from datasets.tritonbench.loader import TritonBenchLoader
 from models.registry.model_registry import load_provider
 from prompts.builders.triton_prompt_builder import TritonPromptBuilder
+from typing import Optional, Union
 
 
 DATA_DIR = "/data"
@@ -50,7 +51,7 @@ def make_operator_name(item: dict, idx: int) -> str:
 
     return f"{idx:04d}_unknown_operator"
 
-def extract_operator_name(instruction: str) -> str | None:
+def extract_operator_name(instruction: str) ->Optional[ str ]:
     match = re.search(
         r"Wrapper Entry Information:\s*(?:def\s+)?([a-zA-Z0-9_]+)\(",
         instruction,
@@ -107,9 +108,9 @@ def benchGeneration(
     model_name: str,
     dataset: str = "simp",
     output_path: str = "predictions/predictions.jsonl",
-    limit: int | None = None,
+    limit:Optional[ int ] = None,
     concurrency: int = 8,
-    operator: str | None = None,
+    operator:Optional[ str ] = None,
 ):
     provider = load_provider(provider_name)
 
