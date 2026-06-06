@@ -40,3 +40,8 @@ Thumbs.db
 
 # Modal-specific (don't sync local Modal state)
 .modal/
+
+# VS Code Extension
+apps/vscode-extension/node_modules/
+apps/vscode-extension/out/
+apps/vscode-extension/*.vsix
