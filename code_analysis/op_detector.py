@@ -62,8 +62,13 @@ def resolve_call(node: ast.Call, alias_map: dict[str, str]) ->Optional[ str ]:
 
         # Alias resolution: F.relu -> torch.nn.functional.relu
         top = path.split(".")[0]
+        prefix = None
         if top in alias_map:
             prefix = alias_map[top]
+        elif top in _TORCH_FN_ALIASES:
+            prefix = _TORCH_FN_ALIASES[top]
+
+        if prefix is not None:
             rest = ".".join(path.split(".")[1:])
             return f"{prefix}.{rest}" if rest else prefix
 

@@ -39,6 +39,77 @@ class TorchToTritonPromptBuilder:
         fusion_plan: FusionPlan,
         contexts: dict[str, OpContext],
     ) -> str:
+        # Check if we can use "direct mode" (single op, TritonBench context)
+        is_single_op = len(graph.operations) == 1
+        is_tritonbench = False
+        full_instruction = None
+        
+        if is_single_op and graph.operations:
+            op = graph.operations[0]
+            ctx = contexts.get(op.op_name)
+            if ctx and ctx.source == "tritonbench_json" and ctx.full_instruction:
+                is_tritonbench = True
+                full_instruction = ctx.full_instruction
+
+        if is_single_op and is_tritonbench and full_instruction:
+            return TorchToTritonPromptBuilder._render_direct_mode(
+                graph, full_instruction
+            )
+        
+        return TorchToTritonPromptBuilder._render_fusion_mode(
+            graph, fusion_plan, contexts
+        )
+
+    @staticmethod
+    def _render_direct_mode(
+        graph: OperationGraph,
+        full_instruction: str,
+    ) -> str:
+        """
+        Render a lean prompt for single-op functions that are in TritonBench.
+        Puts the full TritonBench instruction front and center, plus user-specific metadata.
+        """
+        lines = []
+        lines.append("=" * 66)
+        lines.append(f"FUNCTION NAME: {graph.function_name}")
+        lines.append(f"ORIGINAL SIGNATURE: {graph.signature}")
+        lines.append("")
+
+        # Input shapes from parameters
+        lines.append("INPUT SHAPES:")
+        for p in graph.parameters:
+            shape_str = p.shape if p.shape else "(not annotated)"
+            lines.append(f"  {p.name}: {shape_str}")
+        lines.append("")
+
+        lines.append(f"OUTPUT VARIABLE: {graph.output_var}")
+        lines.append("")
+        lines.append("=" * 66)
+        lines.append("")
+        lines.append("The following operator is defined in TritonBench with its complete specification:")
+        lines.append("")
+        lines.append("-" * 66)
+        lines.append(full_instruction)
+        lines.append("-" * 66)
+        lines.append("")
+        lines.append("Now generate a Triton kernel for this exact user function with the following requirements:")
+        lines.append("- The wrapper must match the ORIGINAL SIGNATURE exactly.")
+        lines.append("- Use the input shapes provided above to design appropriate BLOCK_SIZE and grid.")
+        lines.append("- Return ONLY valid Python code. No markdown fences, no explanations.")
+        lines.append("")
+        lines.append("Generate the complete, self-contained Python module now.")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_fusion_mode(
+        graph: OperationGraph,
+        fusion_plan: FusionPlan,
+        contexts: dict[str, OpContext],
+    ) -> str:
+        """
+        Render the full fusion-mode prompt for multi-op or non-TritonBench functions.
+        """
         lines = []
         lines.append("=" * 66)
         lines.append(f"FUNCTION NAME: {graph.function_name}")

@@ -59,6 +59,7 @@ class OpContext:
     broadcasting: Optional[str] = None
     edge_cases: Optional[str] = None
     notes: Optional[str] = None
+    full_instruction: Optional[str] = None  # complete TritonBench instruction text
 
 
 @dataclass

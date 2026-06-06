@@ -43,6 +43,7 @@ class ContextResolver:
                 broadcasting=None,
                 edge_cases=None,
                 notes="Source: TritonBench JSON (complete variant)",
+                full_instruction=instruction,
             )
 
         # --- Tier 2: torch.__doc__ ---

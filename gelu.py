@@ -1,5 +1,4 @@
-# @triton
-# @in  input: (N,)
-# @out (N,)
-def gelu(input, approximate='none'):
-    return input * 0.5 * (1.0 + torch.erf(input / 1.4142135623730951))
+import torch
+
+def gelu(input: torch.Tensor, approximate: str='none') -> torch.Tensor:
+    return torch.gelu(input, approximate=approximate)
