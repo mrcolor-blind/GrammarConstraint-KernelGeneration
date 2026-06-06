@@ -27,6 +27,21 @@ class GpuValidationOut(BaseModel):
     device: Optional[str] = None
 
 
+class UserComparisonOut(BaseModel):
+    """Result of comparing generated Triton kernel vs original PyTorch fn."""
+    compilation_pass: bool = False
+    accuracy_pass: bool = False
+    max_diff: Optional[float] = None
+    speedup: Optional[float] = None
+    ref_time_ms: Optional[float] = None
+    gen_time_ms: Optional[float] = None
+    suggest_replacement: bool = False
+    reason: str = ""
+    errors: list[str] = []
+    device: Optional[str] = None
+    concrete_dims: Optional[dict] = None
+
+
 class TranslateRequest(BaseModel):
     source_code: str = Field(..., description="Python source code containing the @triton-annotated function")
     provider: str = Field(default="nvidia-grammar", description="LLM provider name")

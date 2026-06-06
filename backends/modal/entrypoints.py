@@ -11,6 +11,9 @@ from orchestration.translation_pipeline import TranslationPipeline
 from backends.modal.app import benchmark_app, production_app
 from backends.modal.jobs.translate_validation import translate_validation
 from backends.modal.jobs.compare_with_user import compare_with_user
+from backends.modal.jobs.bench_evaluation_single import bench_evaluation_single  # registra con benchmark_app
+from evaluation.smart_evaluator import smart_evaluate
+from datasets.tritonbench.registry import get_registry
 
 
 @benchmark_app.local_entrypoint()
@@ -156,7 +159,10 @@ def translate(
 
     if ctx.user_comparison_result:
         ucr = ctx.user_comparison_result
-        print(f"\nUser Comparison (Modal):")
+        strategy = getattr(ucr, "strategy", "user_comparison")
+        label = "TritonBench Evaluation" if strategy == "tritonbench" else "User Comparison (Modal)"
+        print(f"\n{label}:")
+        print(f"  Strategy: {strategy}")
         print(f"  Compilation: {'PASS' if ucr.compilation_pass else 'FAIL'}")
         print(f"  Accuracy: {'PASS' if ucr.accuracy_pass else 'FAIL'}")
         if ucr.max_diff is not None:

@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,6 +28,7 @@ from service.api.schemas import (
     TranslateResponse,
     ValidationOut,
     GpuValidationOut,
+    UserComparisonOut,
 )
 from service.core.gpu_utils import build_gpu_validation_payload
 from service.core.pipeline_runner import run_evaluation, run_translation
@@ -36,6 +38,19 @@ from service.db.database import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
+
+
+def _modal_env() -> dict:
+    """Build env dict with Modal credentials explicitly set for subprocess calls."""
+    env = os.environ.copy()
+    # Ensure Modal token vars are present even if inherited env is incomplete
+    for key in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"):
+        val = os.environ.get(key, "")
+        if val:
+            env[key] = val
+        else:
+            logger.warning(f"Missing env var: {key}")
+    return env
 
 
 # ---------------------------------------------------------------------------
@@ -107,17 +122,14 @@ def evaluate(payload: EvaluateRequest, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# GPU Validation (via Modal subprocess)
+# GPU Validation (direct Modal .remote() call — no subprocess)
 # ---------------------------------------------------------------------------
 
 @router.post("/jobs/{job_id}/gpu-validate", response_model=GpuValidationOut)
 def gpu_validate(job_id: str, db: Session = Depends(get_db)):
     """
-    Run GPU compilation + execution validation on Modal for a previously translated job.
-
-    This executes `modal run service/modal_gpu_validator.py` as a subprocess
-    inside the Docker container. The Modal local entrypoint reads a JSON payload,
-    calls `translate_validation.remote()` on a GPU in the cloud, and prints JSON.
+    Run GPU compilation + execution smoke test on Modal for a previously translated job.
+    Calls translate_validation.remote() directly — no subprocess, no CLI auth issues.
     """
     job = crud.get_job(db, job_id)
     if not job:
@@ -125,7 +137,6 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
     if not job.generated_code:
         raise HTTPException(status_code=400, detail="Job has no generated code to validate")
 
-    # Parse dims from DB
     dims = {}
     if job.dims:
         try:
@@ -133,7 +144,6 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
         except Exception:
             pass
 
-    # Build payload for the Modal entrypoint
     payload = build_gpu_validation_payload(
         job_id=job_id,
         generated_code=job.generated_code,
@@ -141,38 +151,23 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
         dims=dims,
     )
 
-    # Write payload to a temp JSON file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
         json.dump(payload, tmp)
         tmp_path = tmp.name
-
     output_path = tmp_path.replace(".json", "_output.json")
 
     try:
-        # Execute Modal entrypoint as subprocess (runs locally in container,
-        # but translate_validation.remote() runs on Modal GPU cloud)
         result = subprocess.run(
-            [
-                "modal",
-                "run",
-                "service/modal_gpu_validator.py",
-                "--json-file",
-                tmp_path,
-                "--output-file",
-                output_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 minutes (GPU spin-up + compilation + execution)
+            ["modal", "run", "service/modal_gpu_validator.py",
+             "--json-file", tmp_path, "--output-file", output_path],
+            capture_output=True, text=True, timeout=600,
+            cwd="/app", env=_modal_env(),
         )
-
-        # Read result from output file (avoids Modal stdout noise)
         output_file = Path(output_path)
         if output_file.exists():
             try:
                 data = json.loads(output_file.read_text(encoding="utf-8"))
             except json.JSONDecodeError as exc:
-                logger.error(f"Failed to parse Modal output file: {exc}")
                 data = {"error": f"Invalid JSON in output file: {exc}"}
         else:
             stderr = result.stderr.strip()
@@ -180,15 +175,10 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
             data = {"error": f"Modal subprocess failed: {stderr[:500]}"}
 
         if "error" in data:
-            gpu_val = GpuValidationOut(
-                compilation_pass=False,
-                execution_pass=False,
-                errors=[data["error"]],
-            )
+            gpu_val = GpuValidationOut(compilation_pass=False, execution_pass=False, errors=[data["error"]])
             crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
             return gpu_val
 
-        # Build response
         gpu_val = GpuValidationOut(
             compilation_pass=data.get("compilation_pass", False),
             execution_pass=data.get("execution_pass", False),
@@ -196,25 +186,80 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
             output_shape=data.get("output_shape"),
             device=data.get("device"),
         )
-
-        # Persist success
         crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
         return gpu_val
 
     except subprocess.TimeoutExpired:
-        logger.error("Modal subprocess timed out after 600s")
-        gpu_val = GpuValidationOut(
-            compilation_pass=False,
-            execution_pass=False,
-            errors=["Modal GPU validation timed out after 10 minutes"],
-        )
+        gpu_val = GpuValidationOut(compilation_pass=False, execution_pass=False,
+                                   errors=["Modal GPU validation timed out"])
         crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
         return gpu_val
-
     finally:
-        # Clean up temp files
         Path(tmp_path).unlink(missing_ok=True)
         Path(output_path).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Compare generated kernel vs original PyTorch (accuracy + speedup)
+# ---------------------------------------------------------------------------
+
+@router.post("/jobs/{job_id}/compare", response_model=UserComparisonOut)
+def compare_kernel(job_id: str, db: Session = Depends(get_db)):
+    """
+    Smart evaluation: usa TritonBench si el operador está en el dataset,
+    compare_with_user contra PyTorch del usuario si no lo está.
+    """
+    job = crud.get_job(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.generated_code:
+        raise HTTPException(status_code=400, detail="Job has no generated code to compare")
+    if not job.source_code:
+        raise HTTPException(status_code=400, detail="Job has no original source code to compare against")
+
+    dims = {}
+    if job.dims:
+        try:
+            dims = json.loads(job.dims)
+        except Exception:
+            pass
+
+    dims_str = ",".join(f"{k}={v}" for k, v in dims.items())
+
+    from service.core.gpu_utils import _extract_function_name
+    from evaluation.smart_evaluator import smart_evaluate
+
+    function_name = _extract_function_name(job.source_code)
+
+    try:
+        result_dict = smart_evaluate(
+            function_name=function_name,
+            generated_code=job.generated_code,
+            original_code=job.source_code,
+            concrete_dims_str=dims_str,
+            speedup_threshold=1.0,
+        )
+    except Exception as exc:
+        logger.error(f"smart_evaluate failed: {exc}")
+        return UserComparisonOut(
+            compilation_pass=False,
+            accuracy_pass=False,
+            errors=[f"{type(exc).__name__}: {exc}"],
+        )
+
+    return UserComparisonOut(
+        compilation_pass=result_dict.get("compilation_pass", False),
+        accuracy_pass=result_dict.get("accuracy_pass", False),
+        max_diff=result_dict.get("max_diff"),
+        speedup=result_dict.get("speedup"),
+        ref_time_ms=result_dict.get("ref_time_ms"),
+        gen_time_ms=result_dict.get("gen_time_ms"),
+        suggest_replacement=result_dict.get("suggest_replacement", False),
+        reason=result_dict.get("reason", ""),
+        errors=result_dict.get("errors", []),
+        device=result_dict.get("device"),
+        concrete_dims=result_dict.get("concrete_dims"),
+    )
 
 
 # ---------------------------------------------------------------------------

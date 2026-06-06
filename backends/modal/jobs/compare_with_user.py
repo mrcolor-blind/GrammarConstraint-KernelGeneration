@@ -115,12 +115,28 @@ def _generate_inputs(
     dtype=torch.float32,
     device="cuda",
 ):
-    """Generate random tensors matching the annotated shapes."""
+    """Generate random tensors matching the annotated shapes.
+
+    Scalar parameters (shape_str starting with '__scalar__:') are returned
+    as Python floats/ints rather than tensors, preventing shape mismatches
+    when passing alpha-like arguments to both the reference and generated fns.
+    """
     inputs = {}
     for name in param_names:
         shape_str = shapes.get(name)
         if shape_str is None:
             raise ValueError(f"No @in annotation found for parameter '{name}'")
+
+        # Scalar parameter stored as "__scalar__:<value>"
+        if isinstance(shape_str, str) and shape_str.startswith("__scalar__:"):
+            raw = shape_str[len("__scalar__:"):]
+            try:
+                val = float(raw)
+                inputs[name] = int(val) if val == int(val) else val
+            except (ValueError, TypeError):
+                inputs[name] = raw
+            continue
+
         shape_tuple = _shape_to_tuple(shape_str)
         if shape_tuple is None:
             inputs[name] = None
@@ -307,8 +323,8 @@ def compare_with_user(
                     shape_tuple = tuple(info["shape"])
                     input_shapes[name] = str(shape_tuple) if len(shape_tuple) > 1 else f"({shape_tuple[0]},)"
                 elif "value" in info:
-                    # Non-tensor parameter (scalar)
-                    input_shapes[name] = str(info["value"])
+                    # Scalar parameter — prefix so _generate_inputs returns it as-is
+                    input_shapes[name] = f"__scalar__:{info['value']}"
         else:
             input_shapes = _parse_input_shapes(original_code)
     except Exception as e:

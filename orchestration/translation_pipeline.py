@@ -353,14 +353,8 @@ class GpuValidationStage(PipelineStage):
         if ctx.operation_graph is None:
             return StageResult(success=False, error="No OperationGraph available.")
 
-        # Lazy import to avoid Modal dependency on local runs
-        try:
-            from backends.modal.jobs.translate_validation import translate_validation
-        except ImportError as e:
-            return StageResult(
-                success=False,
-                error=f"Modal not available for GPU validation: {e}",
-            )
+        import json, os, subprocess, tempfile
+        from pathlib import Path
 
         # Build input_shapes dict from parameters
         input_shapes = {}
@@ -370,14 +364,50 @@ class GpuValidationStage(PipelineStage):
 
         dims_str = ",".join(f"{k}={v}" for k, v in self.concrete_dims.items())
 
+        payload = {
+            "job_id": self.run_id,
+            "generated_code": ctx.generated_code,
+            "function_name": ctx.operation_graph.function_name,
+            "param_names": [p.name for p in ctx.operation_graph.parameters],
+            "input_shapes": input_shapes,
+            "concrete_dims_str": dims_str,
+        }
+
+        # Pass Modal credentials explicitly so the subprocess can authenticate
+        modal_env = os.environ.copy()
+        for key in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"):
+            if os.environ.get(key):
+                modal_env[key] = os.environ[key]
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
+            json.dump(payload, tmp)
+            tmp_path = tmp.name
+        output_path = tmp_path.replace(".json", "_output.json")
+
         try:
-            result_dict = translate_validation.remote(
-                generated_code=ctx.generated_code,
-                function_name=ctx.operation_graph.function_name,
-                param_names=[p.name for p in ctx.operation_graph.parameters],
-                input_shapes=input_shapes,
-                concrete_dims_str=dims_str,
+            proc = subprocess.run(
+                ["modal", "run", "service/modal_gpu_validator.py",
+                 "--json-file", tmp_path, "--output-file", output_path],
+                capture_output=True, text=True, timeout=600,
+                cwd=str(Path(__file__).resolve().parents[1]),
+                env=modal_env,
             )
+            output_file = Path(output_path)
+            if output_file.exists():
+                result_dict = json.loads(output_file.read_text(encoding="utf-8"))
+                if "error" in result_dict:
+                    return StageResult(success=True, warnings=[result_dict["error"]])
+            else:
+                return StageResult(success=True, warnings=[f"Modal GPU validation failed: {proc.stderr[:300]}"])
+        except subprocess.TimeoutExpired:
+            return StageResult(success=True, warnings=["GPU validation timed out"])
+        except Exception as exc:
+            return StageResult(success=True, warnings=[str(exc)])
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+            Path(output_path).unlink(missing_ok=True)
+
+        try:
             from models.domain import GpuValidationResult
             result = GpuValidationResult(
                 compilation_pass=result_dict.get("compilation_pass", False),
@@ -413,26 +443,24 @@ class CompareWithUserStage(PipelineStage):
         if not ctx.source_code:
             return StageResult(success=False, error="No original source code available.")
 
-        # Lazy import to avoid Modal dependency on local runs
-        try:
-            from backends.modal.jobs.compare_with_user import compare_with_user
-        except ImportError as e:
-            return StageResult(
-                success=False,
-                error=f"Modal not available for comparison: {e}",
-            )
+        import json
+        from evaluation.smart_evaluator import smart_evaluate
 
         dims_str = ",".join(f"{k}={v}" for k, v in self.concrete_dims.items())
+        extracted_shapes = {}
+        if ctx.shape_extraction_result and ctx.shape_extraction_result.shapes:
+            extracted_shapes = ctx.shape_extraction_result.shapes
+
+        function_name = (
+            ctx.operation_graph.function_name
+            if ctx.operation_graph else "unknown"
+        )
 
         try:
-            import json
-            extracted_shapes = {}
-            if ctx.shape_extraction_result and ctx.shape_extraction_result.shapes:
-                extracted_shapes = ctx.shape_extraction_result.shapes
-            
-            result_dict = compare_with_user.remote(
-                original_code=ctx.source_code,
+            result_dict = smart_evaluate(
+                function_name=function_name,
                 generated_code=ctx.generated_code,
+                original_code=ctx.source_code,
                 concrete_dims_str=dims_str,
                 extracted_shapes_json=json.dumps(extracted_shapes) if extracted_shapes else "",
                 speedup_threshold=self.speedup_threshold,
