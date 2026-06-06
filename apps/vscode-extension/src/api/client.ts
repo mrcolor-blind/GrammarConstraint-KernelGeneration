@@ -31,6 +31,7 @@ export interface GpuValidateResponse {
   output_shape?: string;
   device?: string;
   errors: string[];
+  logs?: string[];
 }
 
 export interface CompareResponse {
@@ -44,6 +45,7 @@ export interface CompareResponse {
   reason: string;
   errors: string[];
   device?: string;
+  logs?: string[];
 }
 
 export interface EvaluateResponse {
@@ -77,6 +79,7 @@ export interface JobDetail extends JobSummary {
   generated_code?: string | null;
   validation?: any;
   gpu_validation?: any;
+  comparison_json?: any;
   errors?: string[];
 }
 

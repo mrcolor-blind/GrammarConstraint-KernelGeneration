@@ -409,6 +409,34 @@ h1 {
   background: #3d8b40;
 }
 
+/* Log blocks */
+.log-toggle {
+  cursor: pointer;
+  color: #58a6ff;
+  font-size: 0.85em;
+  margin-top: 8px;
+  user-select: none;
+}
+
+.log-block {
+  background: var(--vscode-textCodeBlock-background);
+  color: var(--vscode-editor-foreground);
+  padding: 10px;
+  border-radius: 6px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.8em;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-block.collapsed {
+  display: none;
+}
+
 /* Current Run Highlight */
 .current-run {
   border: 2px solid var(--accent);

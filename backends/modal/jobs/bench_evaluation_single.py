@@ -79,10 +79,17 @@ def bench_evaluation_single(
     }
     predictions_path.write_text(json.dumps(prediction) + "\n", encoding="utf-8")
 
+    logs: list[str] = []
     errors: list[str] = []
     call_passed = 0
     exec_passed = 0
     speedup = None
+
+    def _log(msg: str):
+        logs.append(msg)
+        print(msg, flush=True)
+
+    _log(f"[BENCH] Starting TritonBench evaluation for operator={operator_name}")
 
     try:
         import call_acc
@@ -91,6 +98,7 @@ def bench_evaluation_single(
         # ── Phase 1: call accuracy ─────────────────────────────────────────
         call_acc_dir.mkdir(parents=True, exist_ok=True)
         try:
+            _log("[BENCH] Phase 1: call accuracy")
             call_acc.call_4file(
                 str(predictions_path),
                 str(call_acc_dir),
@@ -98,21 +106,27 @@ def bench_evaluation_single(
             )
             survivors = list(call_acc_dir.glob("*.py"))
             call_passed = len(survivors)
+            _log(f"[BENCH] call_acc: {call_passed} survivors")
         except Exception as e:
             errors.append(f"call_acc failed: {e}")
+            _log(f"[BENCH] call_acc FAILED: {e}")
 
         # ── Phase 2: execution accuracy ────────────────────────────────────
         if call_passed > 0:
             try:
+                _log("[BENCH] Phase 2: execution accuracy")
                 exe_acc.execute_4folder(str(call_acc_dir), gpus=[0])
                 exec_survivors = list(call_acc_dir.glob("*.py"))
                 exec_passed = len(exec_survivors)
+                _log(f"[BENCH] exec_acc: {exec_passed} survivors")
             except Exception as e:
                 errors.append(f"exec_acc failed: {e}")
+                _log(f"[BENCH] exec_acc FAILED: {e}")
 
         # ── Phase 3: efficiency / speedup ──────────────────────────────────
         if exec_passed > 0:
             try:
+                _log("[BENCH] Phase 3: efficiency / speedup")
                 perf_root = f"{REPO_DIR}/performance_metrics/perf_T"
                 perf_results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,16 +151,21 @@ def bench_evaluation_single(
                             speedup = float(line.split(":", 1)[1].strip())
                         except ValueError:
                             pass
+                _log(f"[BENCH] Speedup: {f'{speedup:.2f}x' if speedup else 'N/A'}")
             except Exception as e:
                 errors.append(f"efficiency failed: {e}")
+                _log(f"[BENCH] efficiency FAILED: {e}")
 
     except ImportError as e:
         errors.append(f"TritonBench eval scripts not available: {e}")
+        _log(f"[BENCH] Import FAILED: {e}")
     finally:
         # Limpieza
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
         volume.commit()
+
+    _log(f"[BENCH] Finished: call_acc={'PASS' if call_passed else 'FAIL'}, exec_acc={'PASS' if exec_passed else 'FAIL'}")
 
     return {
         "strategy": "tritonbench",
@@ -169,4 +188,5 @@ def bench_evaluation_single(
         ),
         "device": "cuda",
         "concrete_dims": {},
+        "logs": logs,
     }

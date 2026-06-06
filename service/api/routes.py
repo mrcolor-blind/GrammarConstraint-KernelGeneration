@@ -156,13 +156,28 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
         tmp_path = tmp.name
     output_path = tmp_path.replace(".json", "_output.json")
 
+    logs: list[str] = []
     try:
-        result = subprocess.run(
+        logger.info(f"Starting Modal GPU validation for job {job_id}")
+        logger.info(f"Modal command: modal run service/modal_gpu_validator.py --json-file {tmp_path} --output-file {output_path}")
+
+        process = subprocess.Popen(
             ["modal", "run", "service/modal_gpu_validator.py",
              "--json-file", tmp_path, "--output-file", output_path],
-            capture_output=True, text=True, timeout=600,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             cwd="/app", env=_modal_env(),
         )
+
+        for line in process.stdout:
+            line = line.rstrip()
+            logs.append(line)
+            logger.info(f"[modal-gpu] {line}")
+
+        returncode = process.wait(timeout=600)
+        if returncode != 0:
+            logger.error(f"Modal subprocess exited with code {returncode}")
+            logs.append(f"Modal subprocess exited with code {returncode}")
+
         output_file = Path(output_path)
         if output_file.exists():
             try:
@@ -170,12 +185,14 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
             except json.JSONDecodeError as exc:
                 data = {"error": f"Invalid JSON in output file: {exc}"}
         else:
-            stderr = result.stderr.strip()
-            logger.error(f"Modal output file not found. stderr: {stderr}")
-            data = {"error": f"Modal subprocess failed: {stderr[:500]}"}
+            logger.error(f"Modal output file not found. Last logs: {' | '.join(logs[-5:])}")
+            data = {"error": f"Modal subprocess failed. Last logs: {' | '.join(logs[-5:])}"}
 
         if "error" in data:
-            gpu_val = GpuValidationOut(compilation_pass=False, execution_pass=False, errors=[data["error"]])
+            gpu_val = GpuValidationOut(
+                compilation_pass=False, execution_pass=False,
+                errors=[data["error"]], logs=logs,
+            )
             crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
             return gpu_val
 
@@ -185,13 +202,19 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
             errors=data.get("errors", []),
             output_shape=data.get("output_shape"),
             device=data.get("device"),
+            logs=logs,
         )
         crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
         return gpu_val
 
     except subprocess.TimeoutExpired:
-        gpu_val = GpuValidationOut(compilation_pass=False, execution_pass=False,
-                                   errors=["Modal GPU validation timed out"])
+        logger.error("Modal subprocess timed out after 600s")
+        logs.append("Modal GPU validation timed out after 10 minutes")
+        gpu_val = GpuValidationOut(
+            compilation_pass=False, execution_pass=False,
+            errors=["Modal GPU validation timed out after 10 minutes"],
+            logs=logs,
+        )
         crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
         return gpu_val
     finally:
@@ -241,13 +264,20 @@ def compare_kernel(job_id: str, db: Session = Depends(get_db)):
         )
     except Exception as exc:
         logger.error(f"smart_evaluate failed: {exc}")
-        return UserComparisonOut(
+        cmp = UserComparisonOut(
             compilation_pass=False,
             accuracy_pass=False,
             errors=[f"{type(exc).__name__}: {exc}"],
         )
+        crud.save_job_result(db, job_id=job_id, comparison_json=cmp.model_dump())
+        return cmp
 
-    return UserComparisonOut(
+    # Extract and log Modal remote logs
+    modal_logs = result_dict.get("logs", [])
+    for line in modal_logs:
+        logger.info(f"[modal-compare] {line}")
+
+    cmp = UserComparisonOut(
         compilation_pass=result_dict.get("compilation_pass", False),
         accuracy_pass=result_dict.get("accuracy_pass", False),
         max_diff=result_dict.get("max_diff"),
@@ -259,7 +289,10 @@ def compare_kernel(job_id: str, db: Session = Depends(get_db)):
         errors=result_dict.get("errors", []),
         device=result_dict.get("device"),
         concrete_dims=result_dict.get("concrete_dims"),
+        logs=modal_logs,
     )
+    crud.save_job_result(db, job_id=job_id, comparison_json=cmp.model_dump())
+    return cmp
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +321,13 @@ def get_run(job_id: str, db: Session = Depends(get_db)):
         except Exception:
             gpu_validation = None
 
+    comparison = None
+    if job.comparison_json:
+        try:
+            comparison = UserComparisonOut(**json.loads(job.comparison_json))
+        except Exception:
+            comparison = None
+
     errors = []
     if job.errors:
         try:
@@ -306,6 +346,7 @@ def get_run(job_id: str, db: Session = Depends(get_db)):
         generated_code=job.generated_code,
         validation=validation,
         gpu_validation=gpu_validation,
+        comparison_json=comparison,
         errors=errors,
         created_at=job.created_at.isoformat() if job.created_at else None,
         completed_at=job.completed_at.isoformat() if job.completed_at else None,

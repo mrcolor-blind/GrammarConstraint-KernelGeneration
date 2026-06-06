@@ -35,6 +35,7 @@ class Job(Base):
     generated_code = Column(Text, nullable=True)
     validation_json = Column(Text, nullable=True)
     gpu_validation_json = Column(Text, nullable=True)
+    comparison_json = Column(Text, nullable=True)
     errors = Column(Text, nullable=True)
 
     # Relationship

@@ -93,27 +93,40 @@ def translate_validation(
                 concrete_dims[k.strip()] = int(v.strip())
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    logs: list[str] = []
     errors = []
     compilation_pass = False
     execution_pass = False
     output_shape = None
 
+    def _log(msg: str):
+        logs.append(msg)
+        print(msg, flush=True)
+
+    _log(f"[GPU_VALIDATE] Starting on device={device}")
+    _log(f"[GPU_VALIDATE] concrete_dims={concrete_dims}")
+
     # Write code to a real file in /data (so inspect.getsource works)
     tmp_dir = Path(DATA_DIR) / "tmp_validation"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     module_name = f"generated_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    _log(f"[GPU_VALIDATE] Writing code to module={module_name}")
 
     # --- Check 1: Compilation ---
     try:
         module = _load_module_from_string(module_name, generated_code, tmp_dir)
         if not hasattr(module, function_name):
             errors.append(f"Function '{function_name}' not found in generated module.")
+            _log(f"[GPU_VALIDATE] Function '{function_name}' not found in module")
         else:
             compilation_pass = True
+            _log("[GPU_VALIDATE] Compilation PASS")
     except SyntaxError as e:
         errors.append(f"SyntaxError during compilation: {e.msg} (line {e.lineno})")
+        _log(f"[GPU_VALIDATE] Compilation SyntaxError: {e.msg} (line {e.lineno})")
     except Exception as e:
         errors.append(f"Compilation failed: {type(e).__name__}: {e}")
+        _log(f"[GPU_VALIDATE] Compilation FAIL: {type(e).__name__}: {e}")
 
     # --- Check 2: Execution (smoke test) ---
     if compilation_pass and hasattr(module, function_name):
@@ -121,19 +134,26 @@ def translate_validation(
         try:
             dummy_inputs = _generate_dummy_inputs(param_names, input_shapes, device=device)
             input_args = [dummy_inputs[name] for name in param_names]
+            shapes_str = {n: list(dummy_inputs[n].shape) for n in param_names}
+            _log(f"[GPU_VALIDATE] Executing with dummy inputs: shapes={shapes_str}")
             result = fn(*input_args)
 
             if result is None:
                 errors.append("Wrapper returned None.")
+                _log("[GPU_VALIDATE] Execution returned None")
             elif not isinstance(result, torch.Tensor):
                 errors.append(f"Wrapper returned {type(result).__name__}, expected torch.Tensor.")
+                _log(f"[GPU_VALIDATE] Execution returned {type(result).__name__}, expected torch.Tensor")
             else:
                 execution_pass = True
                 output_shape = str(tuple(result.shape))
+                _log(f"[GPU_VALIDATE] Execution PASS, output_shape={output_shape}")
         except Exception as e:
             errors.append(f"Execution failed: {type(e).__name__}: {e}")
+            _log(f"[GPU_VALIDATE] Execution FAIL: {type(e).__name__}: {e}")
 
     volume.commit()
+    _log(f"[GPU_VALIDATE] Finished: compilation={compilation_pass}, execution={execution_pass}, device={device}")
 
     return {
         "compilation_pass": compilation_pass,
@@ -141,4 +161,5 @@ def translate_validation(
         "errors": errors,
         "output_shape": output_shape,
         "device": device,
+        "logs": logs,
     }

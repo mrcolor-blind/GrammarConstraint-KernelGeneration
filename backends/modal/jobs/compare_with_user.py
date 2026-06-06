@@ -305,7 +305,15 @@ def compare_with_user(
     concrete_dims = dims
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    logs: list[str] = []
     errors = []
+
+    def _log(msg: str):
+        logs.append(msg)
+        print(msg, flush=True)
+
+    _log(f"[COMPARE] Starting on device={device}")
+    _log(f"[COMPARE] concrete_dims={concrete_dims}")
     
     # --- Step 1: Parse metadata from original code ---
     try:
@@ -327,7 +335,9 @@ def compare_with_user(
                     input_shapes[name] = f"__scalar__:{info['value']}"
         else:
             input_shapes = _parse_input_shapes(original_code)
+        _log(f"[COMPARE] Parsed function_name={function_name}, params={param_names}, shapes={input_shapes}")
     except Exception as e:
+        _log(f"[COMPARE] Failed to parse original code: {e}")
         return {
             "compilation_pass": False,
             "accuracy_pass": False,
@@ -340,6 +350,7 @@ def compare_with_user(
             "errors": [str(e)],
             "device": device,
             "concrete_dims": concrete_dims,
+            "logs": logs,
         }
 
     # --- Step 2: Load both modules ---
@@ -348,6 +359,7 @@ def compare_with_user(
     
     ref_module_name = f"ref_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     gen_module_name = f"gen_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    _log(f"[COMPARE] Loading ref_module={ref_module_name}, gen_module={gen_module_name}")
 
     ref_fn = None
     gen_fn = None
@@ -357,18 +369,27 @@ def compare_with_user(
         ref_fn, err = _compile_and_extract(ref_module, function_name)
         if err:
             errors.append(f"Original code: {err}")
+            _log(f"[COMPARE] Original code compilation error: {err}")
+        else:
+            _log("[COMPARE] Original code compilation PASS")
     except Exception as e:
         errors.append(f"Original code compilation failed: {type(e).__name__}: {e}")
+        _log(f"[COMPARE] Original code compilation FAIL: {type(e).__name__}: {e}")
 
     try:
         gen_module = _load_module_from_string(gen_module_name, generated_code, tmp_dir)
         gen_fn, err = _compile_and_extract(gen_module, function_name)
         if err:
             errors.append(f"Generated code: {err}")
+            _log(f"[COMPARE] Generated code compilation error: {err}")
+        else:
+            _log("[COMPARE] Generated code compilation PASS")
     except Exception as e:
         errors.append(f"Generated code compilation failed: {type(e).__name__}: {e}")
+        _log(f"[COMPARE] Generated code compilation FAIL: {type(e).__name__}: {e}")
 
     if not ref_fn or not gen_fn:
+        _log("[COMPARE] Compilation failed for one or both modules")
         return {
             "compilation_pass": False,
             "accuracy_pass": False,
@@ -381,13 +402,17 @@ def compare_with_user(
             "errors": errors,
             "device": device,
             "concrete_dims": concrete_dims,
+            "logs": logs,
         }
 
     # --- Step 3: Generate inputs ---
     try:
         inputs = _generate_inputs(param_names, input_shapes, concrete_dims, device=device)
         input_args = [inputs[name] for name in param_names]
+        shapes_str = {n: list(inputs[n].shape) if hasattr(inputs[n], 'shape') else str(inputs[n]) for n in param_names}
+        _log(f"[COMPARE] Generated inputs: {shapes_str}")
     except Exception as e:
+        _log(f"[COMPARE] Failed to generate inputs: {e}")
         return {
             "compilation_pass": True,
             "accuracy_pass": False,
@@ -400,6 +425,7 @@ def compare_with_user(
             "errors": errors + [str(e)],
             "device": device,
             "concrete_dims": concrete_dims,
+            "logs": logs,
         }
 
     # --- Step 4: Accuracy check ---
@@ -409,6 +435,10 @@ def compare_with_user(
 
     if acc_error:
         errors.append(acc_error)
+
+    _log(f"[COMPARE] Accuracy check: pass={accuracy_pass}, max_diff={max_diff}")
+    if acc_error:
+        _log(f"[COMPARE] Accuracy error: {acc_error}")
 
     if not accuracy_pass:
         return {
@@ -423,6 +453,7 @@ def compare_with_user(
             "errors": errors,
             "device": device,
             "concrete_dims": concrete_dims,
+            "logs": logs,
         }
 
     # --- Step 5: Timing comparison ---
@@ -430,6 +461,7 @@ def compare_with_user(
         ref_fn, gen_fn, input_args, device,
         warmup_runs=warmup_runs, timed_runs=timed_runs
     )
+    _log(f"[COMPARE] Timing: ref={ref_time_ms:.3f}ms, gen={gen_time_ms:.3f}ms, speedup={speedup:.2f}x")
 
     # --- Step 6: Decision ---
     suggest_replacement = speedup > speedup_threshold
@@ -447,7 +479,11 @@ def compare_with_user(
             f"({ref_time_ms:.2f} ms vs {gen_time_ms:.2f} ms)."
         )
 
+    _log(f"[COMPARE] Suggest replacement: {suggest_replacement}")
+    _log(f"[COMPARE] Reason: {reason}")
+
     volume.commit()
+    _log("[COMPARE] Finished successfully")
 
     return {
         "compilation_pass": True,
@@ -461,4 +497,5 @@ def compare_with_user(
         "errors": errors,
         "device": device,
         "concrete_dims": concrete_dims,
+        "logs": logs,
     }

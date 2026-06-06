@@ -25,6 +25,7 @@ class GpuValidationOut(BaseModel):
     errors: list[str] = []
     output_shape: Optional[str] = None
     device: Optional[str] = None
+    logs: list[str] = []
 
 
 class UserComparisonOut(BaseModel):
@@ -40,6 +41,7 @@ class UserComparisonOut(BaseModel):
     errors: list[str] = []
     device: Optional[str] = None
     concrete_dims: Optional[dict] = None
+    logs: list[str] = []
 
 
 class TranslateRequest(BaseModel):
@@ -110,6 +112,7 @@ class JobDetail(BaseModel):
     generated_code: Optional[str] = None
     validation: Optional[ValidationOut] = None
     gpu_validation: Optional[GpuValidationOut] = None
+    comparison_json: Optional[UserComparisonOut] = None
     errors: list[str] = []
     created_at: Optional[str] = None
     completed_at: Optional[str] = None

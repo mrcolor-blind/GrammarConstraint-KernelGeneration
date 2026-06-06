@@ -207,6 +207,10 @@
         if (data.errors && data.errors.length > 0) {
           html += '<ul class="error-list">' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
         }
+        if (data.logs && data.logs.length > 0) {
+          html += `<div class="log-toggle" onclick="this.nextElementSibling.classList.toggle('collapsed')">📋 Ver logs GPU (${data.logs.length} líneas)</div>`;
+          html += `<pre class="log-block collapsed"><code>${escapeHtml(data.logs.join('\n'))}</code></pre>`;
+        }
       }
       html += '</div></div>';
     }
@@ -228,6 +232,10 @@
         if (d.reason) html += `<p class="hint">${escapeHtml(d.reason)}</p>`;
         if (d.errors && d.errors.length > 0) {
           html += '<ul class="error-list">' + d.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
+        }
+        if (d.logs && d.logs.length > 0) {
+          html += `<div class="log-toggle" onclick="this.nextElementSibling.classList.toggle('collapsed')">📋 Ver logs comparación (${d.logs.length} líneas)</div>`;
+          html += `<pre class="log-block collapsed"><code>${escapeHtml(d.logs.join('\n'))}</code></pre>`;
         }
       }
       html += '</div></div>';
@@ -356,6 +364,11 @@
             gpuResult = { data: message.data.gpu_validation };
           } else {
             gpuResult = null;
+          }
+          if (message.data.comparison_json) {
+            compareResult = { data: message.data.comparison_json };
+          } else {
+            compareResult = null;
           }
           // Note: evaluate data is not in JobDetail, would need separate call
           evaluateResult = null;

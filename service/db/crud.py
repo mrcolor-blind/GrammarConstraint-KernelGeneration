@@ -70,6 +70,7 @@ def save_job_result(
     generated_code: Optional[str] = None,
     validation_json: Optional[dict] = None,
     gpu_validation_json: Optional[dict] = None,
+    comparison_json: Optional[dict] = None,
     errors: Optional[list] = None,
 ):
     job = get_job(db, job_id)
@@ -83,6 +84,8 @@ def save_job_result(
         job.validation_json = json.dumps(validation_json)
     if gpu_validation_json is not None:
         job.gpu_validation_json = json.dumps(gpu_validation_json)
+    if comparison_json is not None:
+        job.comparison_json = json.dumps(comparison_json)
     if errors is not None:
         job.errors = json.dumps(errors)
     db.commit()
