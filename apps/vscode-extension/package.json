@@ -33,7 +33,7 @@
         {
           "command": "triton.translate",
           "group": "9_cutcopypaste@5",
-          "when": "editorLangId == python"
+          "when": "true"
         }
       ]
     }
@@ -44,12 +44,8 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package"
   },
-  "dependencies": {
-    "node-fetch": "^2.7.0"
-  },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/node-fetch": "^2.6.13",
     "@types/vscode": "^1.74.0",
     "typescript": "^5.0.0",
     "vsce": "^2.15.0"

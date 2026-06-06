@@ -5,6 +5,9 @@
   let gpuResult = null;
   let evaluateResult = null;
 
+  const codeInput = document.getElementById('code-input');
+  const btnAnalyze = document.getElementById('btn-analyze');
+  const analyzeStatus = document.getElementById('analyze-status');
   const dimsForm = document.getElementById('dims-form');
   const btnTranslate = document.getElementById('btn-translate');
   const btnGpu = document.getElementById('btn-gpu');
@@ -13,14 +16,36 @@
   const progressText = document.getElementById('progress-text');
   const resultsDiv = document.getElementById('results');
 
-  function renderDimsForm() {
-    if (!initialDims || initialDims.length === 0) {
-      dimsForm.innerHTML = '<p class="warning">No se detectaron dimensiones. Anade comentarios @in/@out con shapes.</p>';
+  function parseDimsFromCode(code) {
+    const dimsSet = new Set();
+    const lines = code.split('\n');
+    const dimRegex = /@(?:in|out)\s+(?:\w+:\s*)?\(([^)]+)\)/g;
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#')) {
+        let match;
+        while ((match = dimRegex.exec(trimmed)) !== null) {
+          const shape = match[1];
+          const tokens = shape.split(/[,\s]+/).filter(t => /^[A-Z][A-Z0-9_]*$/.test(t));
+          for (const token of tokens) {
+            dimsSet.add(token);
+          }
+        }
+      }
+    }
+    
+    return Array.from(dimsSet);
+  }
+
+  function renderDimsForm(dims) {
+    if (!dims || dims.length === 0) {
+      dimsForm.innerHTML = '<p class="warning">No se detectaron dimensiones. Escribe comentarios @in/@out con shapes (ej: # @in x: (N, D_in)).</p>';
       return;
     }
 
     dimsForm.innerHTML = '';
-    initialDims.forEach(dim => {
+    dims.forEach(dim => {
       const label = document.createElement('label');
       label.className = 'dim-label';
       label.innerHTML = `<span>${dim}</span><input type="number" class="dim-input" data-dim="${dim}" value="128" min="1">`;
@@ -43,7 +68,7 @@
       const texts = {
         translate: 'Traduciendo a Triton...',
         gpu: 'Validando en GPU (puede tardar 2-5 min)...',
-        evaluate: 'Evaluando numericamente...',
+        evaluate: 'Evaluando numéricamente...',
       };
       progressText.textContent = texts[step] || 'Procesando...';
     } else {
@@ -56,7 +81,7 @@
 
     if (translateResult) {
       html += '<div class="result-section">';
-      html += '<h3 class="toggle" data-target="res-translate">Traduccion</h3>';
+      html += '<h3 class="toggle" data-target="res-translate">Traducción</h3>';
       html += '<div id="res-translate" class="collapsible">';
       if (translateResult.error) {
         html += `<div class="error-box">${escapeHtml(translateResult.error)}</div>`;
@@ -64,7 +89,7 @@
         const data = translateResult.data;
         html += `<p><strong>Job ID:</strong> ${data.job_id}</p>`;
         html += `<p><strong>Estado:</strong> <span class="badge ${data.status === 'completed' ? 'success' : 'error'}">${data.status}</span></p>`;
-        html += `<p><strong>Validacion estatica:</strong> <span class="badge ${data.validation.passed ? 'success' : 'warning'}">${data.validation.passed ? 'OK' : 'FALLO'}</span></p>`;
+        html += `<p><strong>Validación estática:</strong> <span class="badge ${data.validation.passed ? 'success' : 'warning'}">${data.validation.passed ? 'OK' : 'FALLO'}</span></p>`;
         if (data.validation.errors.length > 0) {
           html += '<ul class="error-list">' + data.validation.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
         }
@@ -84,14 +109,14 @@
 
     if (gpuResult) {
       html += '<div class="result-section">';
-      html += '<h3 class="toggle" data-target="res-gpu">Validacion GPU</h3>';
+      html += '<h3 class="toggle" data-target="res-gpu">Validación GPU</h3>';
       html += '<div id="res-gpu" class="collapsible">';
       if (gpuResult.error) {
         html += `<div class="error-box">${escapeHtml(gpuResult.error)}</div>`;
       } else {
         const data = gpuResult.data;
-        html += `<p><strong>Compilacion:</strong> <span class="badge ${data.compilation_pass ? 'success' : 'error'}">${data.compilation_pass ? 'OK' : 'FALLO'}</span></p>`;
-        html += `<p><strong>Ejecucion:</strong> <span class="badge ${data.execution_pass ? 'success' : 'error'}">${data.execution_pass ? 'OK' : 'FALLO'}</span></p>`;
+        html += `<p><strong>Compilación:</strong> <span class="badge ${data.compilation_pass ? 'success' : 'error'}">${data.compilation_pass ? 'OK' : 'FALLO'}</span></p>`;
+        html += `<p><strong>Ejecución:</strong> <span class="badge ${data.execution_pass ? 'success' : 'error'}">${data.execution_pass ? 'OK' : 'FALLO'}</span></p>`;
         if (data.output_shape) html += `<p><strong>Output shape:</strong> ${escapeHtml(data.output_shape)}</p>`;
         if (data.device) html += `<p><strong>Dispositivo:</strong> ${escapeHtml(data.device)}</p>`;
         if (data.errors.length > 0) {
@@ -103,14 +128,14 @@
 
     if (evaluateResult) {
       html += '<div class="result-section">';
-      html += '<h3 class="toggle" data-target="res-evaluate">Evaluacion Numerica</h3>';
+      html += '<h3 class="toggle" data-target="res-evaluate">Evaluación Numérica</h3>';
       html += '<div id="res-evaluate" class="collapsible">';
       if (evaluateResult.error) {
         html += `<div class="error-box">${escapeHtml(evaluateResult.error)}</div>`;
       } else {
         const data = evaluateResult.data;
-        html += `<p><strong>Precision:</strong> <span class="badge ${data.accuracy_pass ? 'success' : 'error'}">${data.accuracy_pass ? 'OK' : 'FALLO'}</span></p>`;
-        html += `<p><strong>Error maximo:</strong> ${data.max_error.toExponential(2)}</p>`;
+        html += `<p><strong>Precisión:</strong> <span class="badge ${data.accuracy_pass ? 'success' : 'error'}">${data.accuracy_pass ? 'OK' : 'FALLO'}</span></p>`;
+        html += `<p><strong>Error máximo:</strong> ${data.max_error.toExponential(2)}</p>`;
         html += `<p><strong>Speedup:</strong> <span class="badge ${data.speedup > 1 ? 'success' : 'warning'}">${data.speedup.toFixed(2)}x</span></p>`;
         if (data.errors.length > 0) {
           html += '<ul class="error-list">' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
@@ -146,9 +171,31 @@
     btnEvaluate.disabled = !jobId || !gpuResult || (gpuResult.data && !(gpuResult.data.compilation_pass && gpuResult.data.execution_pass));
   }
 
+  btnAnalyze.addEventListener('click', () => {
+    const code = codeInput.value;
+    const dims = parseDimsFromCode(code);
+    renderDimsForm(dims);
+    if (dims.length > 0) {
+      analyzeStatus.textContent = `✅ Detectadas: ${dims.join(', ')}`;
+      analyzeStatus.className = 'analyze-status success';
+    } else {
+      analyzeStatus.textContent = '⚠️ No se detectaron dimensiones';
+      analyzeStatus.className = 'analyze-status warning';
+    }
+  });
+
   btnTranslate.addEventListener('click', () => {
+    const sourceCode = codeInput.value;
+    if (!sourceCode.trim()) {
+      alert('Pega código en el textarea antes de traducir.');
+      return;
+    }
     const dims = getDims();
-    vscode.postMessage({ command: 'translate', dims });
+    if (Object.keys(dims).length === 0) {
+      alert('No hay dimensiones. Haz clic en "Analizar dimensiones" primero.');
+      return;
+    }
+    vscode.postMessage({ command: 'translate', sourceCode, dims });
   });
 
   btnGpu.addEventListener('click', () => {
@@ -196,6 +243,13 @@
     }
   };
 
-  renderDimsForm();
+  // Analizar automáticamente al cargar con el ejemplo
+  const initialDims = parseDimsFromCode(codeInput.value);
+  renderDimsForm(initialDims);
+  if (initialDims.length > 0) {
+    analyzeStatus.textContent = `✅ Detectadas: ${initialDims.join(', ')}`;
+    analyzeStatus.className = 'analyze-status success';
+  }
+
   updateButtons();
 })();

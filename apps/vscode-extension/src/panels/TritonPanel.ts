@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { ParsedFunction } from '../utils/parser';
 import TritonClient, { TranslateResponse, GpuValidateResponse, EvaluateResponse } from '../api/client';
 
 export class TritonPanel {
@@ -7,18 +6,17 @@ export class TritonPanel {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
   private _disposables: vscode.Disposable[] = [];
-  private _parsed: ParsedFunction;
   private _jobId: string | null = null;
+  private _sourceCode: string = '';
   private _dims: Record<string, number> = {};
 
-  public static createOrShow(extensionUri: vscode.Uri, parsed: ParsedFunction) {
+  public static createOrShow(extensionUri: vscode.Uri) {
     const column = vscode.window.activeTextEditor
       ? vscode.ViewColumn.Beside
       : vscode.ViewColumn.One;
 
     if (TritonPanel.currentPanel) {
       TritonPanel.currentPanel._panel.reveal(column);
-      TritonPanel.currentPanel._update(parsed);
       return;
     }
 
@@ -32,15 +30,14 @@ export class TritonPanel {
       }
     );
 
-    TritonPanel.currentPanel = new TritonPanel(panel, extensionUri, parsed);
+    TritonPanel.currentPanel = new TritonPanel(panel, extensionUri);
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, parsed: ParsedFunction) {
+  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
     this._panel = panel;
     this._extensionUri = extensionUri;
-    this._parsed = parsed;
 
-    this._update(parsed);
+    this._panel.webview.html = this._getHtmlForWebview();
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
@@ -48,8 +45,9 @@ export class TritonPanel {
       async (message) => {
         switch (message.command) {
           case 'translate':
+            this._sourceCode = message.sourceCode;
             this._dims = message.dims;
-            await this._doTranslate(message.dims);
+            await this._doTranslate(message.sourceCode, message.dims);
             break;
           case 'gpuValidate':
             await this._doGpuValidate(message.jobId);
@@ -75,16 +73,11 @@ export class TritonPanel {
     );
   }
 
-  private _update(parsed: ParsedFunction) {
-    this._parsed = parsed;
-    this._panel.webview.html = this._getHtmlForWebview();
-  }
-
-  private async _doTranslate(dims: Record<string, number>) {
+  private async _doTranslate(sourceCode: string, dims: Record<string, number>) {
     this._postMessage({ command: 'setProgress', step: 'translate', active: true });
     try {
       const result = await TritonClient.translate({
-        source_code: this._parsed.sourceCode,
+        source_code: sourceCode,
         provider: 'nvidia-grammar',
         dims,
       });
@@ -131,8 +124,14 @@ export class TritonPanel {
     const scriptUri = this._panel.webview.asWebviewUri(scriptPath);
     const styleUri = this._panel.webview.asWebviewUri(stylePath);
 
-    const sourceCode = this._escapeHtml(this._parsed.sourceCode);
-    const dims = JSON.stringify(this._parsed.dims);
+    const exampleCode = `# @triton
+# @in  x:      (N, D_in)
+# @in  weight: (D_out, D_in)
+# @in  bias:   (D_out,)
+# @out (N, D_out)
+def linear_relu(x, weight, bias):
+    z = x @ weight.T + bias
+    return torch.relu(z)`;
 
     return `<!DOCTYPE html>
       <html lang="es">
@@ -149,12 +148,17 @@ export class TritonPanel {
 
           <section class="section">
             <h2>Código PyTorch</h2>
-            <pre class="code-block"><code>${sourceCode}</code></pre>
+            <p class="hint">Pega tu código con comentarios @triton y @in/@out:</p>
+            <textarea id="code-input" class="code-textarea" rows="10" spellcheck="false">${exampleCode}</textarea>
+            <div class="section-actions">
+              <button id="btn-analyze" class="btn btn-analyze">🔍 Analizar dimensiones</button>
+              <span id="analyze-status" class="analyze-status"></span>
+            </div>
           </section>
 
           <section class="section">
             <h2>Dimensiones</h2>
-            <p class="hint">Introduce los valores numéricos para cada dimensión detectada:</p>
+            <p class="hint">Haz clic en "Analizar" para detectarlas automáticamente, o escríbelas manualmente:</p>
             <div id="dims-form"></div>
           </section>
 
@@ -172,22 +176,9 @@ export class TritonPanel {
           <div id="results" class="results"></div>
         </div>
 
-        <script>
-          const initialDims = ${dims};
-          const initialSourceCode = ${JSON.stringify(sourceCode)};
-        </script>
         <script src="${scriptUri}"></script>
       </body>
       </html>`;
-  }
-
-  private _escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
   }
 
   public dispose() {
