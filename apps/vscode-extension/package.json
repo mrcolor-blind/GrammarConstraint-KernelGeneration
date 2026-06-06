@@ -1,0 +1,57 @@
+{
+  "name": "triton-translator",
+  "displayName": "Triton Translator",
+  "description": "Traduce funciones PyTorch a kernels Triton usando el servicio dockerizado",
+  "version": "0.1.0",
+  "publisher": "triton-team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/triton-team/triton-translator.git"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Snippets"
+  ],
+  "activationEvents": [
+    "onCommand:triton.translate"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "triton.translate",
+        "title": "Triton: Traducir función seleccionada",
+        "icon": "$(rocket)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "triton.translate",
+          "group": "9_cutcopypaste@5",
+          "when": "editorLangId == python"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/node-fetch": "^2.6.13",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.0.0",
+    "vsce": "^2.15.0"
+  }
+}

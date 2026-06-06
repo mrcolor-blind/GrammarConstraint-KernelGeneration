@@ -1,0 +1,16 @@
+# VS Code Extension
+node_modules/
+out/
+*.vsix
+.vscode-test/
+
+# TypeScript
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
