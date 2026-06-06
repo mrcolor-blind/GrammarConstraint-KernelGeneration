@@ -67,8 +67,8 @@ export class HistoryViewProvider implements vscode.TreeDataProvider<HistoryItem>
         undefined,
         undefined,
         {
-          command: 'arturito.translate',
-          title: 'Abrir ARTURITO',
+          command: 'triton.translate',
+          title: 'Abrir Triton Translator',
         }
       );
       newTranslationItem.iconPath = new vscode.ThemeIcon('add');
@@ -96,7 +96,7 @@ export class HistoryViewProvider implements vscode.TreeDataProvider<HistoryItem>
               run.job_id,
               run.status,
               {
-                command: 'arturito.loadRun',
+                command: 'triton.loadRun',
                 title: 'Cargar generación',
                 arguments: [run.job_id]
               }

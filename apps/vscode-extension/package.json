@@ -1,7 +1,7 @@
 {
-  "name": "arturito",
-  "displayName": "ARTURITO",
-  "description": "El traductor de PyTorch a Triton con mas flow que el gym",
+  "name": "triton-translator",
+  "displayName": "Triton Translator",
+  "description": "Traduce funciones PyTorch a kernels Triton usando el servicio dockerizado",
   "version": "0.1.0",
   "publisher": "triton-team",
   "repository": {
@@ -17,24 +17,24 @@
     "Snippets"
   ],
   "activationEvents": [
-    "onCommand:arturito.translate",
-    "onView:arturito.history"
+    "onCommand:triton.translate",
+    "onView:triton.history"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "arturito.translate",
-        "title": "ARTURITO: Traducir función",
+        "command": "triton.translate",
+        "title": "Triton: Traducir función",
         "icon": "$(rocket)"
       },
       {
-        "command": "arturito.loadRun",
+        "command": "triton.loadRun",
         "title": "Cargar generación del historial",
         "icon": "$(history)"
       },
       {
-        "command": "arturito.refreshHistory",
+        "command": "triton.refreshHistory",
         "title": "Refrescar historial",
         "icon": "$(refresh)"
       }
@@ -42,20 +42,20 @@
     "menus": {
       "editor/context": [
         {
-          "command": "arturito.translate",
+          "command": "triton.translate",
           "group": "9_cutcopypaste@5",
           "when": "true"
         }
       ],
       "view/title": [
         {
-          "command": "arturito.refreshHistory",
-          "when": "view == arturito.history",
+          "command": "triton.refreshHistory",
+          "when": "view == triton.history",
           "group": "navigation"
         },
         {
-          "command": "arturito.translate",
-          "when": "view == arturito.history",
+          "command": "triton.translate",
+          "when": "view == triton.history",
           "group": "navigation"
         }
       ]
@@ -63,16 +63,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "arturito-sidebar",
-          "title": "ARTURITO",
+          "id": "triton-sidebar",
+          "title": "Triton Translator",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "arturito-sidebar": [
+      "triton-sidebar": [
         {
-          "id": "arturito.history",
+          "id": "triton.history",
           "name": "Historial",
           "when": "true"
         }

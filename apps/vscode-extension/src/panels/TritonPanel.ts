@@ -22,7 +22,7 @@ export class TritonPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'tritonPanel',
-      'ARTURITO',
+      'Triton Translator',
       column,
       {
         enableScripts: true,
@@ -175,12 +175,12 @@ def linear_relu(x, weight, bias):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="${styleUri}">
-        <title>ARTURITO</title>
+        <title>Triton Translator</title>
       </head>
       <body>
         <div class="container">
-          <h1>🤖💪 ARTURITO</h1>
-          <p class="subtitle">El traductor de PyTorch a Triton con mas flow que el gym</p>
+          <h1>🚀 Triton Translator</h1>
+          <p class="subtitle">Traduce funciones PyTorch a kernels Triton</p>
 
           <section class="section history-section">
             <h2>📜 Historial de Generaciones</h2>
