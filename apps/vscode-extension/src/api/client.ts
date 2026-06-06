@@ -33,6 +33,19 @@ export interface GpuValidateResponse {
   errors: string[];
 }
 
+export interface CompareResponse {
+  compilation_pass: boolean;
+  accuracy_pass: boolean;
+  max_diff?: number;
+  speedup?: number;
+  ref_time_ms?: number;
+  gen_time_ms?: number;
+  suggest_replacement: boolean;
+  reason: string;
+  errors: string[];
+  device?: string;
+}
+
 export interface EvaluateResponse {
   job_id: string;
   accuracy_pass: boolean;
@@ -103,6 +116,10 @@ export class TritonClient {
 
   async gpuValidate(jobId: string): Promise<GpuValidateResponse> {
     return this._post<GpuValidateResponse>(`/jobs/${jobId}/gpu-validate`, {}, 360000); // 360s
+  }
+
+  async compare(jobId: string): Promise<CompareResponse> {
+    return this._post<CompareResponse>(`/jobs/${jobId}/compare`, {}, 600000); // 600s
   }
 
   async evaluate(jobId: string, dims: Record<string, number>): Promise<EvaluateResponse> {

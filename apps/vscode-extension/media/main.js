@@ -3,6 +3,7 @@
   let jobId = null;
   let translateResult = null;
   let gpuResult = null;
+  let compareResult = null;
   let evaluateResult = null;
   let runsHistory = [];
   let currentRunDetail = null;
@@ -108,7 +109,8 @@
       progressDiv.classList.remove('hidden');
       const texts = {
         translate: 'Traduciendo a Triton...',
-        gpu: 'Validando en GPU (puede tardar 2-5 min)...',
+        gpu: 'Validando en GPU — compilando y ejecutando (2-5 min)...',
+        compare: 'Comparando precisión y velocidad vs PyTorch (2-5 min)...',
         evaluate: 'Evaluando numéricamente...',
         load: 'Cargando detalles...',
       };
@@ -202,15 +204,30 @@
         html += `<p><strong>Ejecución:</strong> <span class="badge ${data.execution_pass ? 'success' : 'error'}">${data.execution_pass ? 'OK' : 'FALLO'}</span></p>`;
         if (data.output_shape) html += `<p><strong>Output shape:</strong> ${escapeHtml(data.output_shape)}</p>`;
         if (data.device) html += `<p><strong>Dispositivo:</strong> ${escapeHtml(data.device)}</p>`;
-        if (data.errors.length > 0) {
+        if (data.errors && data.errors.length > 0) {
           html += '<ul class="error-list">' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
         }
-        // Inline Evaluate button - only if GPU passed
-        if (data.compilation_pass && data.execution_pass && jobId) {
-          html += `<div class="inline-action">`;
-          html += `<button class="btn btn-evaluate-inline" onclick="evaluateRun('${jobId}')">📊 Evaluar</button>`;
-          html += `<span class="hint">Compara precisión y velocidad vs PyTorch original</span>`;
-          html += `</div>`;
+      }
+      html += '</div></div>';
+    }
+
+    if (compareResult) {
+      html += '<div class="result-section">';
+      html += '<h3 class="toggle" data-target="res-compare">Comparación vs PyTorch</h3>';
+      html += '<div id="res-compare" class="collapsible">';
+      if (compareResult.error) {
+        html += `<div class="error-box">${escapeHtml(compareResult.error)}</div>`;
+      } else {
+        const d = compareResult.data;
+        html += `<p><strong>call_accuracy:</strong> <span class="badge ${d.accuracy_pass ? 'success' : 'error'}">${d.accuracy_pass ? 'OK' : 'FALLO'}</span></p>`;
+        if (d.max_diff != null) html += `<p><strong>exec_accuracy (max_diff):</strong> ${d.max_diff.toExponential(3)}</p>`;
+        if (d.speedup != null) html += `<p><strong>Speedup:</strong> <span class="badge ${d.speedup >= 1 ? 'success' : 'warning'}">${d.speedup.toFixed(2)}x</span></p>`;
+        if (d.ref_time_ms != null) html += `<p><strong>PyTorch:</strong> ${d.ref_time_ms.toFixed(3)} ms</p>`;
+        if (d.gen_time_ms != null) html += `<p><strong>Triton:</strong> ${d.gen_time_ms.toFixed(3)} ms</p>`;
+        if (d.suggest_replacement) html += `<p><span class="badge success">✅ Recomendado reemplazar PyTorch con este kernel</span></p>`;
+        if (d.reason) html += `<p class="hint">${escapeHtml(d.reason)}</p>`;
+        if (d.errors && d.errors.length > 0) {
+          html += '<ul class="error-list">' + d.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
         }
       }
       html += '</div></div>';
@@ -297,11 +314,14 @@
         if (message.step === 'translate') {
           translateResult = message;
           if (message.data) jobId = message.data.job_id;
-          // Clear previous GPU/evaluate results on new translation
+          // Clear previous GPU/compare/evaluate results on new translation
           gpuResult = null;
+          compareResult = null;
           evaluateResult = null;
         } else if (message.step === 'gpu') {
           gpuResult = message;
+        } else if (message.step === 'compare') {
+          compareResult = message;
         } else if (message.step === 'evaluate') {
           evaluateResult = message;
         }
