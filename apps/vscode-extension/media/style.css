@@ -305,3 +305,112 @@ h1 {
   color: var(--warn);
   font-style: italic;
 }
+
+/* History Section */
+.history-section {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.history-item:hover {
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.history-item-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.history-status {
+  font-size: 0.75em;
+}
+
+.history-id {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.history-date {
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+  margin-left: auto;
+}
+
+.history-item-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 0.8em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.history-func {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Inline Actions */
+.inline-action {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-gpu-inline {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 1em;
+  transition: background 0.2s;
+}
+
+.btn-gpu-inline:hover {
+  background: var(--accent-hover);
+}
+
+.btn-evaluate-inline {
+  background: var(--success);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 1em;
+  transition: background 0.2s;
+}
+
+.btn-evaluate-inline:hover {
+  background: #3d8b40;
+}
+
+/* Current Run Highlight */
+.current-run {
+  border: 2px solid var(--accent);
+  background: var(--vscode-editor-inactiveSelectionBackground);
+}

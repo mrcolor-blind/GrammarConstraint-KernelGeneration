@@ -1,7 +1,7 @@
 {
-  "name": "triton-translator",
-  "displayName": "Triton Translator",
-  "description": "Traduce funciones PyTorch a kernels Triton usando el servicio dockerizado",
+  "name": "arturito",
+  "displayName": "ARTURITO",
+  "description": "El traductor de PyTorch a Triton con mas flow que el gym",
   "version": "0.1.0",
   "publisher": "triton-team",
   "repository": {
@@ -17,22 +17,63 @@
     "Snippets"
   ],
   "activationEvents": [
-    "onCommand:triton.translate"
+    "onCommand:arturito.translate",
+    "onView:arturito.history"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "triton.translate",
-        "title": "Triton: Traducir función seleccionada",
+        "command": "arturito.translate",
+        "title": "ARTURITO: Traducir función",
         "icon": "$(rocket)"
+      },
+      {
+        "command": "arturito.loadRun",
+        "title": "Cargar generación del historial",
+        "icon": "$(history)"
+      },
+      {
+        "command": "arturito.refreshHistory",
+        "title": "Refrescar historial",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "triton.translate",
+          "command": "arturito.translate",
           "group": "9_cutcopypaste@5",
+          "when": "true"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "arturito.refreshHistory",
+          "when": "view == arturito.history",
+          "group": "navigation"
+        },
+        {
+          "command": "arturito.translate",
+          "when": "view == arturito.history",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "arturito-sidebar",
+          "title": "ARTURITO",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "arturito-sidebar": [
+        {
+          "id": "arturito.history",
+          "name": "Historial",
           "when": "true"
         }
       ]

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import TritonClient, { TranslateResponse, GpuValidateResponse, EvaluateResponse } from '../api/client';
+import TritonClient, { TranslateResponse, GpuValidateResponse, EvaluateResponse, JobListResponse, JobDetail } from '../api/client';
 
 export class TritonPanel {
   public static currentPanel: TritonPanel | undefined;
@@ -22,7 +22,7 @@ export class TritonPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'tritonPanel',
-      'Triton Translator',
+      'ARTURITO',
       column,
       {
         enableScripts: true,
@@ -33,6 +33,10 @@ export class TritonPanel {
     TritonPanel.currentPanel = new TritonPanel(panel, extensionUri);
   }
 
+  public async loadRun(jobId: string): Promise<void> {
+    return this._doLoadRun(jobId);
+  }
+
   private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
     this._panel = panel;
     this._extensionUri = extensionUri;
@@ -40,6 +44,9 @@ export class TritonPanel {
     this._panel.webview.html = this._getHtmlForWebview();
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+    // Load history immediately
+    this._loadHistory();
 
     this._panel.webview.onDidReceiveMessage(
       async (message) => {
@@ -54,6 +61,9 @@ export class TritonPanel {
             break;
           case 'evaluate':
             await this._doEvaluate(message.jobId, message.dims);
+            break;
+          case 'loadRun':
+            await this._doLoadRun(message.jobId);
             break;
           case 'copyCode':
             await vscode.env.clipboard.writeText(message.code);
@@ -73,6 +83,28 @@ export class TritonPanel {
     );
   }
 
+  private async _loadHistory() {
+    try {
+      const result = await TritonClient.listRuns(20);
+      this._postMessage({ command: 'setHistory', data: result });
+    } catch (err: any) {
+      this._postMessage({ command: 'setHistory', data: null, error: err.message });
+    }
+  }
+
+  private async _doLoadRun(jobId: string) {
+    this._postMessage({ command: 'setProgress', step: 'load', active: true });
+    try {
+      const result = await TritonClient.getRun(jobId);
+      this._jobId = result.job_id;
+      this._postMessage({ command: 'setRunDetail', data: result });
+    } catch (err: any) {
+      this._postMessage({ command: 'setRunDetail', data: null, error: err.message });
+    } finally {
+      this._postMessage({ command: 'setProgress', step: 'load', active: false });
+    }
+  }
+
   private async _doTranslate(sourceCode: string, dims: Record<string, number>) {
     this._postMessage({ command: 'setProgress', step: 'translate', active: true });
     try {
@@ -83,6 +115,8 @@ export class TritonPanel {
       });
       this._jobId = result.job_id;
       this._postMessage({ command: 'setResult', step: 'translate', data: result });
+      // Refresh history after successful translation
+      await this._loadHistory();
     } catch (err: any) {
       this._postMessage({ command: 'setResult', step: 'translate', data: null, error: err.message || 'Error desconocido' });
     } finally {
@@ -95,6 +129,8 @@ export class TritonPanel {
     try {
       const result = await TritonClient.gpuValidate(jobId);
       this._postMessage({ command: 'setResult', step: 'gpu', data: result });
+      // Refresh history after GPU validation
+      await this._loadHistory();
     } catch (err: any) {
       this._postMessage({ command: 'setResult', step: 'gpu', data: null, error: err.message || 'Error desconocido' });
     } finally {
@@ -139,12 +175,19 @@ def linear_relu(x, weight, bias):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="${styleUri}">
-        <title>Triton Translator</title>
+        <title>ARTURITO</title>
       </head>
       <body>
         <div class="container">
-          <h1>🚀 Triton Translator</h1>
-          <p class="subtitle">Traduce funciones PyTorch a kernels Triton</p>
+          <h1>🤖💪 ARTURITO</h1>
+          <p class="subtitle">El traductor de PyTorch a Triton con mas flow que el gym</p>
+
+          <section class="section history-section">
+            <h2>📜 Historial de Generaciones</h2>
+            <div id="history-list">
+              <p class="hint">Cargando historial...</p>
+            </div>
+          </section>
 
           <section class="section">
             <h2>Código PyTorch</h2>
@@ -164,8 +207,6 @@ def linear_relu(x, weight, bias):
 
           <section class="section actions">
             <button id="btn-translate" class="btn btn-primary">Traducir</button>
-            <button id="btn-gpu" class="btn btn-secondary" disabled>Validar GPU</button>
-            <button id="btn-evaluate" class="btn btn-secondary" disabled>Evaluar</button>
           </section>
 
           <div id="progress" class="progress hidden">

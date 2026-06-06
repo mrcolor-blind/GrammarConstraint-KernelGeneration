@@ -4,17 +4,18 @@
   let translateResult = null;
   let gpuResult = null;
   let evaluateResult = null;
+  let runsHistory = [];
+  let currentRunDetail = null;
 
   const codeInput = document.getElementById('code-input');
   const btnAnalyze = document.getElementById('btn-analyze');
   const analyzeStatus = document.getElementById('analyze-status');
   const dimsForm = document.getElementById('dims-form');
   const btnTranslate = document.getElementById('btn-translate');
-  const btnGpu = document.getElementById('btn-gpu');
-  const btnEvaluate = document.getElementById('btn-evaluate');
   const progressDiv = document.getElementById('progress');
   const progressText = document.getElementById('progress-text');
   const resultsDiv = document.getElementById('results');
+  const historyList = document.getElementById('history-list');
 
   function parseDimsFromCode(code) {
     const dimsSet = new Set();
@@ -62,6 +63,46 @@
     return dims;
   }
 
+  function renderHistory() {
+    if (!historyList) return;
+    
+    if (runsHistory.length === 0) {
+      historyList.innerHTML = '<p class="hint">No hay generaciones previas. Realiza una traducción para guardar en el historial.</p>';
+      return;
+    }
+
+    let html = '<div class="history-list">';
+    runsHistory.forEach(run => {
+      const statusClass = run.status === 'completed' ? 'success' : (run.status === 'failed' ? 'error' : 'warning');
+      const date = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+      html += `
+        <div class="history-item" data-job-id="${run.job_id}">
+          <div class="history-item-main">
+            <span class="history-status badge ${statusClass}">${run.status}</span>
+            <span class="history-id">${run.job_id}</span>
+            <span class="history-date">${date}</span>
+          </div>
+          <div class="history-item-meta">
+            ${run.function_name ? `<span class="history-func">${run.function_name}</span>` : ''}
+            <span class="history-model">${run.provider || 'nvidia-grammar'}</span>
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+    historyList.innerHTML = html;
+
+    // Attach click handlers
+    document.querySelectorAll('.history-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const jobId = item.dataset.jobId;
+        if (jobId) {
+          vscode.postMessage({ command: 'loadRun', jobId });
+        }
+      });
+    });
+  }
+
   function setProgress(step, active) {
     if (active) {
       progressDiv.classList.remove('hidden');
@@ -69,6 +110,7 @@
         translate: 'Traduciendo a Triton...',
         gpu: 'Validando en GPU (puede tardar 2-5 min)...',
         evaluate: 'Evaluando numéricamente...',
+        load: 'Cargando detalles...',
       };
       progressText.textContent = texts[step] || 'Procesando...';
     } else {
@@ -78,6 +120,40 @@
 
   function renderResults() {
     let html = '';
+
+    // If we have a loaded run detail, show it
+    if (currentRunDetail) {
+      const data = currentRunDetail;
+      html += '<div class="result-section current-run">';
+      html += '<h3 class="toggle" data-target="res-current">Generación Actual</h3>';
+      html += '<div id="res-current" class="collapsible">';
+      html += `<p><strong>Job ID:</strong> ${data.job_id}</p>`;
+      html += `<p><strong>Estado:</strong> <span class="badge ${data.status === 'completed' ? 'success' : 'error'}">${data.status}</span></p>`;
+      
+      if (data.source_code) {
+        html += '<p><strong>Código fuente:</strong></p>';
+        html += `<pre class="code-block"><code>${escapeHtml(data.source_code)}</code></pre>`;
+      }
+      
+      if (data.generated_code) {
+        html += '<p><strong>Código Triton:</strong></p>';
+        html += '<div class="code-actions">';
+        html += `<button class="btn btn-small" onclick="copyCode('triton')">Copiar</button>`;
+        html += `<button class="btn btn-small" onclick="openFile('triton')">Abrir en nuevo archivo</button>`;
+        html += '</div>';
+        html += `<pre class="code-block"><code>${escapeHtml(data.generated_code)}</code></pre>`;
+      }
+      
+      if (data.validation) {
+        html += `<p><strong>Validación estática:</strong> <span class="badge ${data.validation.passed ? 'success' : 'warning'}">${data.validation.passed ? 'OK' : 'FALLO'}</span></p>`;
+      }
+      
+      if (data.gpu_validation) {
+        html += `<p><strong>GPU:</strong> <span class="badge ${data.gpu_validation.compilation_pass ? 'success' : 'error'}">Compilación ${data.gpu_validation.compilation_pass ? 'OK' : 'FALLO'}</span></p>`;
+      }
+      
+      html += '</div></div>';
+    }
 
     if (translateResult) {
       html += '<div class="result-section">';
@@ -103,6 +179,13 @@
           html += '</div>';
           html += `<pre class="code-block"><code>${escapeHtml(data.generated_code)}</code></pre>`;
         }
+        // Inline GPU button - only if validation passed and status is completed
+        if (data.validation.passed && data.status === 'completed') {
+          html += `<div class="inline-action">`;
+          html += `<button class="btn btn-gpu-inline" onclick="validateGpu('${data.job_id}')">🚀 Validar GPU</button>`;
+          html += `<span class="hint">Compila y ejecuta el kernel en una GPU real vía Modal</span>`;
+          html += `</div>`;
+        }
       }
       html += '</div></div>';
     }
@@ -121,6 +204,13 @@
         if (data.device) html += `<p><strong>Dispositivo:</strong> ${escapeHtml(data.device)}</p>`;
         if (data.errors.length > 0) {
           html += '<ul class="error-list">' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
+        }
+        // Inline Evaluate button - only if GPU passed
+        if (data.compilation_pass && data.execution_pass && jobId) {
+          html += `<div class="inline-action">`;
+          html += `<button class="btn btn-evaluate-inline" onclick="evaluateRun('${jobId}')">📊 Evaluar</button>`;
+          html += `<span class="hint">Compara precisión y velocidad vs PyTorch original</span>`;
+          html += `</div>`;
         }
       }
       html += '</div></div>';
@@ -167,8 +257,6 @@
 
   function updateButtons() {
     btnTranslate.disabled = progressDiv.classList.contains('hidden') === false;
-    btnGpu.disabled = !jobId || !translateResult || (translateResult.data && translateResult.data.status !== 'completed');
-    btnEvaluate.disabled = !jobId || !gpuResult || (gpuResult.data && !(gpuResult.data.compilation_pass && gpuResult.data.execution_pass));
   }
 
   btnAnalyze.addEventListener('click', () => {
@@ -198,17 +286,6 @@
     vscode.postMessage({ command: 'translate', sourceCode, dims });
   });
 
-  btnGpu.addEventListener('click', () => {
-    if (!jobId) return;
-    vscode.postMessage({ command: 'gpuValidate', jobId });
-  });
-
-  btnEvaluate.addEventListener('click', () => {
-    if (!jobId) return;
-    const dims = getDims();
-    vscode.postMessage({ command: 'evaluate', jobId, dims });
-  });
-
   window.addEventListener('message', (event) => {
     const message = event.data;
     switch (message.command) {
@@ -220,6 +297,9 @@
         if (message.step === 'translate') {
           translateResult = message;
           if (message.data) jobId = message.data.job_id;
+          // Clear previous GPU/evaluate results on new translation
+          gpuResult = null;
+          evaluateResult = null;
         } else if (message.step === 'gpu') {
           gpuResult = message;
         } else if (message.step === 'evaluate') {
@@ -228,19 +308,67 @@
         renderResults();
         updateButtons();
         break;
+      case 'setHistory':
+        if (message.data && message.data.items) {
+          runsHistory = message.data.items;
+        } else {
+          runsHistory = [];
+        }
+        renderHistory();
+        break;
+      case 'setRunDetail':
+        if (message.data) {
+          currentRunDetail = message.data;
+          // Also populate the results
+          if (message.data.job_id) {
+            jobId = message.data.job_id;
+          }
+          // Set up translate/gpu/evaluate results from the detail
+          translateResult = {
+            data: {
+              job_id: message.data.job_id,
+              status: message.data.status,
+              validation: message.data.validation || { passed: false, errors: [], warnings: [] },
+              generated_code: message.data.generated_code,
+            }
+          };
+          if (message.data.gpu_validation) {
+            gpuResult = { data: message.data.gpu_validation };
+          } else {
+            gpuResult = null;
+          }
+          // Note: evaluate data is not in JobDetail, would need separate call
+          evaluateResult = null;
+          renderResults();
+        } else {
+          alert('Error cargando detalle: ' + (message.error || 'desconocido'));
+        }
+        updateButtons();
+        break;
     }
   });
 
   window.copyCode = (type) => {
-    if (type === 'triton' && translateResult && translateResult.data && translateResult.data.generated_code) {
-      vscode.postMessage({ command: 'copyCode', code: translateResult.data.generated_code });
+    const code = currentRunDetail?.generated_code || (translateResult?.data?.generated_code);
+    if (code) {
+      vscode.postMessage({ command: 'copyCode', code });
     }
   };
 
   window.openFile = (type) => {
-    if (type === 'triton' && translateResult && translateResult.data && translateResult.data.generated_code) {
-      vscode.postMessage({ command: 'openInNewFile', code: translateResult.data.generated_code });
+    const code = currentRunDetail?.generated_code || (translateResult?.data?.generated_code);
+    if (code) {
+      vscode.postMessage({ command: 'openInNewFile', code });
     }
+  };
+
+  window.validateGpu = (jobId) => {
+    vscode.postMessage({ command: 'gpuValidate', jobId });
+  };
+
+  window.evaluateRun = (jobId) => {
+    const dims = getDims();
+    vscode.postMessage({ command: 'evaluate', jobId, dims });
   };
 
   // Analizar automáticamente al cargar con el ejemplo

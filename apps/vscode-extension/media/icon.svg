@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+  <!-- Cuerpo del robot (Arturito) -->
+  <rect x="5" y="4" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/>
+  <!-- Cabeza/domos -->
+  <path d="M5 5.5C5 3.5 6.5 2.5 8 2.5C9.5 2.5 11 3.5 11 5.5" stroke="currentColor" stroke-width="1.2" fill="none"/>
+  <!-- Ojo -->
+  <circle cx="8" cy="5" r="1" fill="currentColor"/>
+  <!-- Brazo izquierdo con peso -->
+  <path d="M4 7L2 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="0.5" y="4.5" width="2" height="2" rx="0.3" stroke="currentColor" stroke-width="1" fill="none"/>
+  <!-- Brazo derecho con peso -->
+  <path d="M12 7L14 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="13.5" y="4.5" width="2" height="2" rx="0.3" stroke="currentColor" stroke-width="1" fill="none"/>
+  <!-- Piernas robustas -->
+  <path d="M6 9L6 12.5L5.5 13.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M10 9L10 12.5L10.5 13.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Base/pies -->
+  <line x1="4" y1="13.5" x2="7" y2="13.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="9" y1="13.5" x2="12" y2="13.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

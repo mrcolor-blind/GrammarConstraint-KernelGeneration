@@ -41,6 +41,32 @@ export interface EvaluateResponse {
   errors: string[];
 }
 
+export interface JobSummary {
+  job_id: string;
+  status: string;
+  type: string;
+  provider: string;
+  model: string;
+  run_id?: string;
+  function_name?: string;
+  created_at?: string;
+}
+
+export interface JobListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  items: JobSummary[];
+}
+
+export interface JobDetail extends JobSummary {
+  source_code?: string;
+  generated_code?: string | null;
+  validation?: any;
+  gpu_validation?: any;
+  errors?: string[];
+}
+
 export class TritonClient {
   private async _post<T>(endpoint: string, body: object, timeoutMs: number): Promise<T> {
     const controller = new AbortController();
@@ -81,6 +107,30 @@ export class TritonClient {
 
   async evaluate(jobId: string, dims: Record<string, number>): Promise<EvaluateResponse> {
     return this._post<EvaluateResponse>('/evaluate', { job_id: jobId, dims }, 120000); // 120s
+  }
+
+  async listRuns(limit: number = 20): Promise<JobListResponse> {
+    const response = await fetch(`${BASE_URL}/runs?limit=${limit}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+    return (await response.json()) as JobListResponse;
+  }
+
+  async getRun(jobId: string): Promise<JobDetail> {
+    const response = await fetch(`${BASE_URL}/runs/${jobId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+    return (await response.json()) as JobDetail;
   }
 }
 

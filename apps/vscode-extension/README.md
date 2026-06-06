@@ -1,6 +1,8 @@
-# Triton Translator
+# 🤖💪 ARTURITO
 
-Extensión de VS Code para traducir funciones PyTorch a kernels Triton usando el servicio dockerizado.
+El traductor de PyTorch a Triton con mas flow que el gym.
+
+Extension de VS Code para traducir funciones PyTorch a kernels Triton usando el servicio dockerizado.
 
 ## Requisitos previos
 
@@ -19,21 +21,36 @@ Extensión de VS Code para traducir funciones PyTorch a kernels Triton usando el
 1. En VS Code, ve a **Extensiones** → `...` → **Instalar desde VSIX...**
 2. Selecciona:
    ```
-   apps/vscode-extension/triton-translator-0.1.0.vsix
+   apps/vscode-extension/arturito-0.1.0.vsix
    ```
 3. Recarga la ventana si te lo pide.
 
 ## Cómo usar
 
-1. Abre **cualquier archivo** (no necesitas un `.py` específico).
-2. Ejecuta el comando:
-   - `Cmd + Shift + P` → **"Triton: Traducir función seleccionada"**
-   - O clic derecho en el editor → **"Triton: Traducir función seleccionada"**
-3. Se abre una pestaña lateral con:
-   - Un **textarea** para pegar tu código PyTorch.
-   - Un botón **"Analizar dimensiones"** que detecta automáticamente `N`, `D_in`, etc.
-   - Inputs para introducir los **valores numéricos** de cada dimensión.
-   - Botones **Traducir → Validar GPU → Evaluar**.
+### Desde el Sidebar (recomendado)
+
+1. Busca el icono **🤖💪 ARTURITO** en la **Activity Bar** (barra lateral izquierda de VS Code).
+2. Haz clic para abrir el panel de **Historial**.
+3. Desde ahí puedes:
+   - Ver tus **generaciones anteriores** (status, fecha, modelo).
+   - Hacer clic en cualquier generación para ver sus detalles.
+   - Pulsar **"Nueva traducción"** para abrir el panel de trabajo.
+   - Refrescar el historial con el botón **↻** arriba.
+
+### Desde la Paleta de Comandos
+
+1. `Cmd + Shift + P` → **"ARTURITO: Traducir función"**
+2. O clic derecho en el editor → **"ARTURITO: Traducir función"**
+
+### Panel de trabajo
+
+Se abre una pestaña lateral con:
+- Un **textarea** para pegar tu código PyTorch.
+- Un botón **"Analizar dimensiones"** que detecta automáticamente `N`, `D_in`, etc.
+- Inputs para introducir los **valores numéricos** de cada dimensión.
+- Botón **Traducir**.
+
+Cuando la traducción pasa la validación estática, aparece **"🚀 Validar GPU"** dentro del recuadro de resultados. Si la GPU pasa, aparece **"📊 Evaluar"**.
 
 ### Formato del código esperado
 
