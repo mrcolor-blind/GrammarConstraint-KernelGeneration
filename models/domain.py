@@ -108,6 +108,31 @@ class GpuValidationResult:
 
 
 @dataclass
+class UserComparisonResult:
+    """Result of comparing generated Triton kernel against user's PyTorch code."""
+    compilation_pass: bool
+    accuracy_pass: bool
+    max_diff: Optional[float] = None
+    speedup: Optional[float] = None
+    ref_time_ms: Optional[float] = None
+    gen_time_ms: Optional[float] = None
+    suggest_replacement: bool = False
+    reason: str = ""
+    errors: list[str] = field(default_factory=list)
+    device: Optional[str] = None
+    concrete_dims: Optional[dict] = None
+
+
+@dataclass
+class ShapeExtractionResult:
+    """Result of extracting shapes from a call site execution."""
+    success: bool
+    shapes: dict[str, Any] = field(default_factory=dict)
+    error: Optional[str] = None
+    called: bool = False
+
+
+@dataclass
 class PipelineContext:
     """Mutable context passed through every pipeline stage."""
     source_code: str = ""
@@ -121,5 +146,8 @@ class PipelineContext:
     prompt_messages: list[dict] = field(default_factory=list)
     validation_result: Optional[ValidationResult] = None
     gpu_validation_result: Optional[GpuValidationResult] = None
+    user_comparison_result: Optional[UserComparisonResult] = None
+    shape_extraction_result: Optional[ShapeExtractionResult] = None
+    call_site_code: str = ""
     attempt_counts: dict[str, int] = field(default_factory=dict)
     evaluation_result: Optional[dict] = None

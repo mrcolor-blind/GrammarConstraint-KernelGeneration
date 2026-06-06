@@ -56,6 +56,10 @@ def persist_source_code(debug_dir: Path, source_code: str):
     (debug_dir / "01_input.py").write_text(source_code, encoding="utf-8")
 
 
+def persist_call_site(debug_dir: Path, call_site_code: str):
+    (debug_dir / "01b_call_site.py").write_text(call_site_code, encoding="utf-8")
+
+
 def persist_parse(debug_dir: Path, graph: OperationGraph):
     (debug_dir / "02_parse.json").write_text(
         json.dumps(_to_json(graph), indent=2),
@@ -134,6 +138,24 @@ def persist_gpu_validation(debug_dir: Path, result):
         )
 
 
+def persist_user_comparison(debug_dir: Path, result):
+    from models.domain import UserComparisonResult
+    if isinstance(result, UserComparisonResult):
+        (debug_dir / "09c_user_comparison.json").write_text(
+            json.dumps(_to_json(result), indent=2),
+            encoding="utf-8",
+        )
+
+
+def persist_shape_extraction(debug_dir: Path, result):
+    from models.domain import ShapeExtractionResult
+    if isinstance(result, ShapeExtractionResult):
+        (debug_dir / "03b_shape_extraction.json").write_text(
+            json.dumps(_to_json(result), indent=2),
+            encoding="utf-8",
+        )
+
+
 def persist_final_code(debug_dir: Path, code: str):
     (debug_dir / "10_final.py").write_text(code, encoding="utf-8")
 
@@ -180,6 +202,43 @@ def write_summary(debug_dir: Path, ctx: PipelineContext):
         if gvr.errors:
             lines.append("- Errors:")
             for e in gvr.errors:
+                lines.append(f"  - {e}")
+
+    if ctx.shape_extraction_result:
+        lines.append("")
+        lines.append("## Shape Extraction")
+        ser = ctx.shape_extraction_result
+        lines.append(f"- Success: {'PASS' if ser.success else 'FAIL'}")
+        if ser.error:
+            lines.append(f"- Error: {ser.error}")
+        if ser.shapes:
+            lines.append("- Extracted shapes:")
+            for name, info in ser.shapes.items():
+                if "shape" in info:
+                    lines.append(f"  - {name}: {info['shape']} (dtype={info.get('dtype', 'N/A')}, device={info.get('device', 'N/A')})")
+                elif "value" in info:
+                    lines.append(f"  - {name}: {info['value']} ({info.get('type', 'N/A')})")
+
+    if ctx.user_comparison_result:
+        lines.append("")
+        lines.append("## User Comparison (Triton vs. PyTorch)")
+        ucr = ctx.user_comparison_result
+        lines.append(f"- Compilation: {'PASS' if ucr.compilation_pass else 'FAIL'}")
+        lines.append(f"- Accuracy: {'PASS' if ucr.accuracy_pass else 'FAIL'}")
+        if ucr.max_diff is not None:
+            lines.append(f"- Max diff: {ucr.max_diff:.6e}")
+        if ucr.speedup is not None:
+            lines.append(f"- Speedup: {ucr.speedup:.2f}x")
+        if ucr.ref_time_ms is not None:
+            lines.append(f"- PyTorch time: {ucr.ref_time_ms:.2f} ms")
+        if ucr.gen_time_ms is not None:
+            lines.append(f"- Triton time: {ucr.gen_time_ms:.2f} ms")
+        lines.append(f"- Suggest replacement: {'YES' if ucr.suggest_replacement else 'NO'}")
+        if ucr.reason:
+            lines.append(f"- Reason: {ucr.reason}")
+        if ucr.errors:
+            lines.append("- Errors:")
+            for e in ucr.errors:
                 lines.append(f"  - {e}")
 
     if ctx.evaluation_result:

@@ -85,6 +85,94 @@ class ShapeResolveStage(PipelineStage):
         return ctx
 
 
+class ShapeExtractionStage(PipelineStage):
+    """Extract exact shapes from a call site via runtime execution."""
+    name = "EXTRACT_SHAPES"
+
+    def _try(self, ctx: PipelineContext) -> StageResult:
+        if ctx.operation_graph is None:
+            return StageResult(success=False, error="No OperationGraph available.")
+        if not ctx.call_site_code:
+            return StageResult(
+                success=False,
+                error="No call site code provided. Use --call-site to provide a code snippet that calls the function.",
+            )
+
+        try:
+            from shape_extraction.executor import (
+                extract_shapes,
+                format_shapes_for_prompt,
+            )
+            from models.domain import ShapeExtractionResult
+
+            result = extract_shapes(
+                function_code=ctx.source_code,
+                call_site_code=ctx.call_site_code,
+                function_name=ctx.operation_graph.function_name,
+            )
+
+            if not result.get("called"):
+                error = result.get("error", "Function was never called.")
+                ctx.shape_extraction_result = ShapeExtractionResult(
+                    success=False,
+                    error=error,
+                    called=False,
+                )
+                return StageResult(success=False, error=error)
+
+            if result.get("error"):
+                # Called but had an error during execution
+                ctx.shape_extraction_result = ShapeExtractionResult(
+                    success=False,
+                    error=result["error"],
+                    called=True,
+                )
+                return StageResult(success=False, error=result["error"])
+
+            # Success: map shapes to parameters
+            extracted_shapes = result.get("shapes", {})
+            ctx.shape_extraction_result = ShapeExtractionResult(
+                success=True,
+                shapes=extracted_shapes,
+                called=True,
+            )
+
+            # Attach shapes to OperationGraph parameters
+            for param in ctx.operation_graph.parameters:
+                if param.name in extracted_shapes:
+                    info = extracted_shapes[param.name]
+                    if "shape" in info:
+                        shape_tuple = tuple(info["shape"])
+                        param.shape = str(shape_tuple) if len(shape_tuple) > 1 else f"({shape_tuple[0]},)"
+                    elif "value" in info:
+                        param.shape = str(info["value"])
+
+            # Also attach to OpNodes
+            known_shapes = {}
+            for param in ctx.operation_graph.parameters:
+                if param.shape:
+                    known_shapes[param.name] = param.shape
+
+            for op in ctx.operation_graph.operations:
+                for i, iv in enumerate(op.input_vars):
+                    base = iv.split(".")[0].split("[")[0].strip()
+                    if base in known_shapes:
+                        op.shape = known_shapes[base]
+
+            warnings = []
+            for param in ctx.operation_graph.parameters:
+                if param.name not in extracted_shapes:
+                    warnings.append(f"Shape not extracted for parameter '{param.name}'.")
+
+            return StageResult(success=True, data=extracted_shapes, warnings=warnings)
+
+        except Exception as e:
+            return StageResult(success=False, error=str(e))
+
+    def _prepare_retry(self, ctx: PipelineContext, error: str, attempt: int) -> PipelineContext:
+        return ctx
+
+
 class ContextResolveStage(PipelineStage):
     name = "CONTEXT"
 
@@ -309,6 +397,71 @@ class GpuValidationStage(PipelineStage):
             return StageResult(success=False, error=str(e))
 
 
+class CompareWithUserStage(PipelineStage):
+    """Compare generated Triton kernel against user's original PyTorch code."""
+    name = "COMPARE_WITH_USER"
+    max_attempts = 1  # No repair loop; just report
+
+    def __init__(self, concrete_dims: dict[str, int], speedup_threshold: float = 1.1):
+        super().__init__()
+        self.concrete_dims = concrete_dims
+        self.speedup_threshold = speedup_threshold
+
+    def _try(self, ctx: PipelineContext) -> StageResult:
+        if not ctx.generated_code:
+            return StageResult(success=False, error="No generated code available.")
+        if not ctx.source_code:
+            return StageResult(success=False, error="No original source code available.")
+
+        # Lazy import to avoid Modal dependency on local runs
+        try:
+            from backends.modal.jobs.compare_with_user import compare_with_user
+        except ImportError as e:
+            return StageResult(
+                success=False,
+                error=f"Modal not available for comparison: {e}",
+            )
+
+        dims_str = ",".join(f"{k}={v}" for k, v in self.concrete_dims.items())
+
+        try:
+            import json
+            extracted_shapes = {}
+            if ctx.shape_extraction_result and ctx.shape_extraction_result.shapes:
+                extracted_shapes = ctx.shape_extraction_result.shapes
+            
+            result_dict = compare_with_user.remote(
+                original_code=ctx.source_code,
+                generated_code=ctx.generated_code,
+                concrete_dims_str=dims_str,
+                extracted_shapes_json=json.dumps(extracted_shapes) if extracted_shapes else "",
+                speedup_threshold=self.speedup_threshold,
+            )
+            from models.domain import UserComparisonResult
+            result = UserComparisonResult(
+                compilation_pass=result_dict.get("compilation_pass", False),
+                accuracy_pass=result_dict.get("accuracy_pass", False),
+                max_diff=result_dict.get("max_diff"),
+                speedup=result_dict.get("speedup"),
+                ref_time_ms=result_dict.get("ref_time_ms"),
+                gen_time_ms=result_dict.get("gen_time_ms"),
+                suggest_replacement=result_dict.get("suggest_replacement", False),
+                reason=result_dict.get("reason", ""),
+                errors=result_dict.get("errors", []),
+                device=result_dict.get("device"),
+                concrete_dims=result_dict.get("concrete_dims"),
+            )
+            ctx.user_comparison_result = result
+            # Comparison is informational; stage always "succeeds" so pipeline continues
+            return StageResult(
+                success=True,
+                data=result,
+                warnings=result.errors,
+            )
+        except Exception as e:
+            return StageResult(success=False, error=str(e))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -340,22 +493,31 @@ class TranslationPipeline:
         provider_name: str,
         model_name: str,
         modal_validate: bool = False,
+        compare_with_user: bool = False,
+        speedup_threshold: float = 1.1,
         concrete_dims: Optional[dict[str, int]] = None,
         debug_root: Optional[Path] = None,
+        call_site_code: str = "",
     ):
         self.provider_name = provider_name
         self.model_name = model_name
         self.modal_validate = modal_validate
+        self.compare_with_user = compare_with_user
+        self.speedup_threshold = speedup_threshold
         self.concrete_dims = concrete_dims or {}
         self.debug_root = debug_root
+        self.call_site_code = call_site_code
 
-    def run(self, file_path: str, source_code: Optional[str] = None) -> PipelineContext:
+    def run(self, file_path: str, source_code: Optional[str] = None, call_site_code: Optional[str] = None) -> PipelineContext:
         """
         Execute the full pipeline.
         Returns the final PipelineContext with all artifacts and results.
         """
         if source_code is None:
             source_code = Path(file_path).read_text(encoding="utf-8")
+        
+        if call_site_code is None:
+            call_site_code = self.call_site_code
 
         # Override debug root for Modal volume if provided
         if self.debug_root:
@@ -370,14 +532,23 @@ class TranslationPipeline:
             source_code=source_code,
             file_path=file_path,
             run_id=run_id,
+            call_site_code=call_site_code,
         )
 
         debug_logger.persist_source_code(debug_dir, source_code)
+        if call_site_code:
+            debug_logger.persist_call_site(debug_dir, call_site_code)
         logger.info(f"[{run_id}] Starting translation pipeline for {file_path}")
+
+        # Determine which shape stage to use
+        if call_site_code:
+            shape_stage = ShapeExtractionStage()
+        else:
+            shape_stage = ShapeResolveStage()
 
         stages = [
             ParseStage(),
-            ShapeResolveStage(),
+            shape_stage,
             ContextResolveStage(),
             FusionPlannerStage(),
             PromptBuilderStage(),
@@ -414,6 +585,28 @@ class TranslationPipeline:
                     f"[{run_id}] GPU validation stage failed: {gpu_result.error}"
                 )
 
+        # Optional: Compare generated Triton against user's PyTorch code
+        if self.compare_with_user:
+            comp_stage = CompareWithUserStage(
+                concrete_dims=self.concrete_dims,
+                speedup_threshold=self.speedup_threshold,
+            )
+            logger.info(f"[{run_id}] Running optional stage: {comp_stage.name}")
+            comp_result = comp_stage.run(ctx)
+            self._persist_stage_artifact(debug_dir, comp_stage.name, ctx, comp_result)
+            if comp_result.success and ctx.user_comparison_result:
+                ucr = ctx.user_comparison_result
+                logger.info(
+                    f"[{run_id}] User comparison: compilation={'PASS' if ucr.compilation_pass else 'FAIL'}, "
+                    f"accuracy={'PASS' if ucr.accuracy_pass else 'FAIL'}, "
+                    f"speedup={ucr.speedup:.2f}x " if ucr.speedup is not None else f"speedup=N/A, "
+                    f"suggest={ucr.suggest_replacement}"
+                )
+            else:
+                logger.warning(
+                    f"[{run_id}] User comparison stage failed: {comp_result.error}"
+                )
+
         # Final success
         debug_logger.persist_final_code(debug_dir, ctx.generated_code)
         debug_logger.write_summary(debug_dir, ctx)
@@ -438,6 +631,10 @@ class TranslationPipeline:
             debug_logger.persist_parse(debug_dir, ctx.operation_graph)
         elif stage_name == "SHAPES" and ctx.operation_graph:
             debug_logger.persist_shapes(debug_dir, ctx.operation_graph)
+        elif stage_name == "EXTRACT_SHAPES" and ctx.shape_extraction_result:
+            debug_logger.persist_shape_extraction(debug_dir, ctx.shape_extraction_result)
+            if ctx.operation_graph:
+                debug_logger.persist_shapes(debug_dir, ctx.operation_graph)
         elif stage_name == "CONTEXT" and ctx.contexts:
             debug_logger.persist_contexts(debug_dir, ctx.contexts)
         elif stage_name == "FUSION" and ctx.fusion_plan:
@@ -455,3 +652,5 @@ class TranslationPipeline:
             debug_logger.persist_validation(debug_dir, ctx.validation_result)
         elif stage_name == "GPU_VALIDATE" and ctx.gpu_validation_result:
             debug_logger.persist_gpu_validation(debug_dir, ctx.gpu_validation_result)
+        elif stage_name == "COMPARE_WITH_USER" and ctx.user_comparison_result:
+            debug_logger.persist_user_comparison(debug_dir, ctx.user_comparison_result)
