@@ -455,6 +455,10 @@ class CompareWithUserStage(PipelineStage):
             ctx.operation_graph.function_name
             if ctx.operation_graph else "unknown"
         )
+        torch_op_names = (
+            [op.op_name for op in ctx.operation_graph.operations]
+            if ctx.operation_graph else []
+        )
 
         try:
             result_dict = smart_evaluate(
@@ -464,6 +468,7 @@ class CompareWithUserStage(PipelineStage):
                 concrete_dims_str=dims_str,
                 extracted_shapes_json=json.dumps(extracted_shapes) if extracted_shapes else "",
                 speedup_threshold=self.speedup_threshold,
+                torch_op_names=torch_op_names,
             )
             from models.domain import UserComparisonResult
             result = UserComparisonResult(
