@@ -1,7 +1,6 @@
 # VS Code Extension
 node_modules/
 out/
-*.vsix
 .vscode-test/
 
 # TypeScript
