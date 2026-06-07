@@ -147,6 +147,7 @@ def build_gpu_validation_payload(
     return {
         "job_id": job_id,
         "generated_code": generated_code,
+        "original_source_code": original_source_code,
         "function_name": function_name,
         "param_names": param_names,
         "input_shapes": input_shapes,

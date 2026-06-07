@@ -6,6 +6,7 @@ Performs compilation + execution smoke test on a real GPU.
 import importlib.util
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -79,6 +80,7 @@ def translate_validation(
     param_names: list,
     input_shapes: dict,
     concrete_dims_str: str = "",
+    original_code: str = "",
 ) -> dict:
     """
     Validate a generated translation inside a Modal GPU container.
@@ -152,6 +154,45 @@ def translate_validation(
             errors.append(f"Execution failed: {type(e).__name__}: {e}")
             _log(f"[GPU_VALIDATE] Execution FAIL: {type(e).__name__}: {e}")
 
+    # --- PyTorch benchmark (always run, independent of Triton result) ---
+    pytorch_time_ms = None
+    if original_code:
+        try:
+            _log("[GPU_VALIDATE] Benchmarking original PyTorch code")
+            ref_module = _load_module_from_string(
+                f"ref_{module_name}", original_code, tmp_dir
+            )
+            if hasattr(ref_module, function_name):
+                ref_fn = getattr(ref_module, function_name)
+                # Reuse same dummy inputs if available, else regenerate
+                if compilation_pass and hasattr(module, function_name):
+                    pt_inputs = input_args
+                else:
+                    pt_inputs = [
+                        _generate_dummy_inputs(param_names, input_shapes, device=device)[name]
+                        for name in param_names
+                    ]
+
+                # Warmup
+                for _ in range(3):
+                    _ = ref_fn(*pt_inputs)
+                if device == "cuda":
+                    torch.cuda.synchronize()
+
+                # Timed runs
+                import time
+                start = time.perf_counter()
+                for _ in range(10):
+                    _ = ref_fn(*pt_inputs)
+                if device == "cuda":
+                    torch.cuda.synchronize()
+                pytorch_time_ms = (time.perf_counter() - start) / 10 * 1000
+                _log(f"[GPU_VALIDATE] PyTorch time: {pytorch_time_ms:.3f} ms")
+            else:
+                _log(f"[GPU_VALIDATE] Function '{function_name}' not found in original code")
+        except Exception as e:
+            _log(f"[GPU_VALIDATE] PyTorch benchmark FAIL: {type(e).__name__}: {e}")
+
     volume.commit()
     _log(f"[GPU_VALIDATE] Finished: compilation={compilation_pass}, execution={execution_pass}, device={device}")
 
@@ -162,4 +203,5 @@ def translate_validation(
         "output_shape": output_shape,
         "device": device,
         "logs": logs,
+        "pytorch_time_ms": pytorch_time_ms,
     }

@@ -26,6 +26,7 @@ class GpuValidationOut(BaseModel):
     output_shape: Optional[str] = None
     device: Optional[str] = None
     logs: list[str] = []
+    pytorch_time_ms: Optional[float] = None
 
 
 class UserComparisonOut(BaseModel):

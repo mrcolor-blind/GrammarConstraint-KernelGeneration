@@ -134,17 +134,15 @@ export class TritonPanel {
       const gpuResult = await TritonClient.gpuValidate(jobId);
       this._postMessage({ command: 'setResult', step: 'gpu', data: gpuResult });
 
-      // Step 2: accuracy + speedup comparison (only if smoke test passed)
-      if (gpuResult.compilation_pass && gpuResult.execution_pass) {
-        this._postMessage({ command: 'setProgress', step: 'compare', active: true });
-        try {
-          const compareResult = await TritonClient.compare(jobId);
-          this._postMessage({ command: 'setResult', step: 'compare', data: compareResult });
-        } catch (cmpErr: any) {
-          this._postMessage({ command: 'setResult', step: 'compare', data: null, error: cmpErr.message || 'Error en comparación' });
-        } finally {
-          this._postMessage({ command: 'setProgress', step: 'compare', active: false });
-        }
+      // Step 2: accuracy + speedup comparison (always run, even if Triton failed)
+      this._postMessage({ command: 'setProgress', step: 'compare', active: true });
+      try {
+        const compareResult = await TritonClient.compare(jobId);
+        this._postMessage({ command: 'setResult', step: 'compare', data: compareResult });
+      } catch (cmpErr: any) {
+        this._postMessage({ command: 'setResult', step: 'compare', data: null, error: cmpErr.message || 'Error en comparación' });
+      } finally {
+        this._postMessage({ command: 'setProgress', step: 'compare', active: false });
       }
 
       await this._loadHistory();

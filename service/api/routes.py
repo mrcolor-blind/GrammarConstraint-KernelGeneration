@@ -194,7 +194,7 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
         if "error" in data:
             gpu_val = GpuValidationOut(
                 compilation_pass=False, execution_pass=False,
-                errors=[data["error"]], logs=logs,
+                errors=[data["error"]], logs=logs, pytorch_time_ms=None,
             )
             crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
             return gpu_val
@@ -206,6 +206,7 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
             output_shape=data.get("output_shape"),
             device=data.get("device"),
             logs=logs,
+            pytorch_time_ms=data.get("pytorch_time_ms"),
         )
         crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
         return gpu_val
@@ -217,6 +218,7 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
             compilation_pass=False, execution_pass=False,
             errors=["Modal GPU validation timed out after 10 minutes"],
             logs=logs,
+            pytorch_time_ms=None,
         )
         crud.save_job_result(db, job_id=job_id, gpu_validation_json=gpu_val.model_dump())
         return gpu_val

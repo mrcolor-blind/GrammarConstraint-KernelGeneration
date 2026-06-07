@@ -156,6 +156,9 @@
         html += `<p><strong>Ejecución:</strong> <span class="badge ${data.execution_pass ? 'success' : 'error'}">${data.execution_pass ? 'OK' : 'FALLO'}</span></p>`;
         if (data.output_shape) html += `<p><strong>Output shape:</strong> ${escapeHtml(data.output_shape)}</p>`;
         if (data.device) html += `<p><strong>Dispositivo:</strong> ${escapeHtml(data.device)}</p>`;
+        if (data.pytorch_time_ms != null) {
+          html += `<p><strong>PyTorch (GPU):</strong> ${data.pytorch_time_ms.toFixed(3)} ms</p>`;
+        }
         if (data.errors && data.errors.length > 0) {
           html += '<ul class="error-list">' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
         }
@@ -178,7 +181,11 @@
         html += `<p><strong>call_accuracy:</strong> <span class="badge ${d.accuracy_pass ? 'success' : 'error'}">${d.accuracy_pass ? 'OK' : 'FALLO'}</span></p>`;
         if (d.max_diff != null) html += `<p><strong>exec_accuracy (max_diff):</strong> ${d.max_diff.toExponential(3)}</p>`;
         if (d.speedup != null) html += `<p><strong>Speedup:</strong> <span class="badge ${d.speedup >= 1 ? 'success' : 'warning'}">${d.speedup.toFixed(2)}x</span></p>`;
-        if (d.ref_time_ms != null) html += `<p><strong>PyTorch:</strong> ${d.ref_time_ms.toFixed(3)} ms</p>`;
+        if (d.ref_time_ms != null) {
+          html += `<p><strong>PyTorch:</strong> ${d.ref_time_ms.toFixed(3)} ms</p>`;
+        } else if (gpuResult && gpuResult.data && gpuResult.data.pytorch_time_ms != null) {
+          html += `<p><strong>PyTorch (GPU):</strong> ${gpuResult.data.pytorch_time_ms.toFixed(3)} ms</p>`;
+        }
         if (d.gen_time_ms != null) html += `<p><strong>Triton:</strong> ${d.gen_time_ms.toFixed(3)} ms</p>`;
         if (d.suggest_replacement) html += `<p><span class="badge success">✅ Recomendado reemplazar PyTorch con este kernel</span></p>`;
         if (d.reason) html += `<p class="hint">${escapeHtml(d.reason)}</p>`;

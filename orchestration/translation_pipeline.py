@@ -367,6 +367,7 @@ class GpuValidationStage(PipelineStage):
         payload = {
             "job_id": self.run_id,
             "generated_code": ctx.generated_code,
+            "original_source_code": ctx.source_code,
             "function_name": ctx.operation_graph.function_name,
             "param_names": [p.name for p in ctx.operation_graph.parameters],
             "input_shapes": input_shapes,

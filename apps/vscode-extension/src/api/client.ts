@@ -33,6 +33,7 @@ export interface GpuValidateResponse {
   device?: string;
   errors: string[];
   logs?: string[];
+  pytorch_time_ms?: number;
 }
 
 export interface CompareResponse {

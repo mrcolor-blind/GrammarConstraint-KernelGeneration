@@ -68,6 +68,7 @@ def main(
             param_names=payload["param_names"],
             input_shapes=payload["input_shapes"],
             concrete_dims_str=payload.get("concrete_dims_str", ""),
+            original_code=payload.get("original_source_code", ""),
         )
         # Write result to output file (avoids Modal stdout noise)
         Path(output_file).write_text(json.dumps(result), encoding="utf-8")
