@@ -9,7 +9,9 @@ class Parameter:
     kind: str  # e.g. 'POSITIONAL_OR_KEYWORD', 'KEYWORD_ONLY'
     default: Any = None
     annotation: Optional[str] = None
-    shape: Optional[str] = None  # populated by shape_resolver
+    shape: Optional[str] = None  # populated by shape_resolver / shape_extraction
+    dtype: Optional[str] = None  # e.g. 'float32', 'float64' — populated by shape_extraction
+    param_kind: Optional[str] = None  # 'tensor' | 'scalar' — populated by shape_extraction
 
 
 @dataclass
@@ -33,6 +35,7 @@ class OperationGraph:
     operations: list[OpNode]
     output_var: str
     source_code: str = ""
+    call_patterns: Optional[list[dict[str, Any]]] = None  # multi-call deduplicated patterns
 
 
 @dataclass
@@ -129,6 +132,8 @@ class ShapeExtractionResult:
     """Result of extracting shapes from a call site execution."""
     success: bool
     shapes: dict[str, Any] = field(default_factory=dict)
+    calls: list[dict[str, Any]] = field(default_factory=list)  # all per-call shapes
+    patterns: list[dict[str, Any]] = field(default_factory=list)  # deduplicated structural patterns
     error: Optional[str] = None
     called: bool = False
 
@@ -150,5 +155,6 @@ class PipelineContext:
     user_comparison_result: Optional[UserComparisonResult] = None
     shape_extraction_result: Optional[ShapeExtractionResult] = None
     call_site_code: str = ""
+    all_calls: bool = False
     attempt_counts: dict[str, int] = field(default_factory=dict)
     evaluation_result: Optional[dict] = None

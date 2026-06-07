@@ -64,6 +64,7 @@ def translate(
     speedup_threshold: float = 1.1,
     call_site: str = "",
     dims: str = "",
+    all_calls: bool = False,
 ):
     """
     Translate a PyTorch function to Triton, with optional GPU validation and
@@ -71,6 +72,8 @@ def translate(
     
     If --call-site is provided, the pipeline will execute the call site code
     locally to extract exact tensor shapes for the prompt and benchmark.
+    If --all-calls is set, shapes from ALL test cases are captured, deduplicated
+    by structural pattern, and shown to the LLM in the prompt.
     
     Local stages run on your machine; GPU validation and comparison run inside
     a Modal container.
@@ -109,6 +112,7 @@ def translate(
         speedup_threshold=speedup_threshold,
         concrete_dims=concrete_dims,
         call_site_code=call_site_code,
+        all_calls=all_calls,
     )
 
     ctx = pipeline.run(

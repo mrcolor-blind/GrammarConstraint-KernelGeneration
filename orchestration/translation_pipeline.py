@@ -23,7 +23,7 @@ from orchestration.pipeline_stage import PipelineStage
 from prompts.builders.torch_to_triton import TorchToTritonPromptBuilder
 from utils import debug_logger
 from validation.validator import validate_code
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,10 @@ class ShapeExtractionStage(PipelineStage):
     """Extract exact shapes from a call site via runtime execution."""
     name = "EXTRACT_SHAPES"
 
+    def __init__(self, all_calls: bool = False):
+        super().__init__()
+        self.all_calls = all_calls
+
     def _try(self, ctx: PipelineContext) -> StageResult:
         if ctx.operation_graph is None:
             return StageResult(success=False, error="No OperationGraph available.")
@@ -131,21 +135,39 @@ class ShapeExtractionStage(PipelineStage):
 
             # Success: map shapes to parameters
             extracted_shapes = result.get("shapes", {})
+            all_calls_data = result.get("calls", [])
+            patterns = _deduplicate_call_patterns(all_calls_data) if self.all_calls else []
+
             ctx.shape_extraction_result = ShapeExtractionResult(
                 success=True,
                 shapes=extracted_shapes,
+                calls=all_calls_data,
+                patterns=patterns,
                 called=True,
             )
 
-            # Attach shapes to OperationGraph parameters
+            # Attach shapes to OperationGraph parameters (from last call)
             for param in ctx.operation_graph.parameters:
                 if param.name in extracted_shapes:
                     info = extracted_shapes[param.name]
                     if "shape" in info:
                         shape_tuple = tuple(info["shape"])
-                        param.shape = str(shape_tuple) if len(shape_tuple) > 1 else f"({shape_tuple[0]},)"
+                        if len(shape_tuple) == 0:
+                            param.shape = "()"
+                        elif len(shape_tuple) == 1:
+                            param.shape = f"({shape_tuple[0]},)"
+                        else:
+                            param.shape = str(shape_tuple)
+                        param.dtype = info.get("dtype")
+                        param.param_kind = "tensor"
                     elif "value" in info:
                         param.shape = str(info["value"])
+                        param.dtype = info.get("type")
+                        param.param_kind = "scalar"
+
+            # Store deduplicated patterns on the graph for the prompt builder
+            if patterns and len(patterns) > 1:
+                ctx.operation_graph.call_patterns = _format_call_patterns(patterns)
 
             # Also attach to OpNodes
             known_shapes = {}
@@ -516,6 +538,54 @@ def _extract_code(text: str) -> str:
     return s.strip() + "\n"
 
 
+def _deduplicate_call_patterns(calls: list[dict]) -> list[dict]:
+    """Group calls by structural signature: which params are tensor/scalar and their shapes."""
+    seen_signatures = {}
+    patterns = []
+    for call in calls:
+        sig_parts = []
+        for name in sorted(call.keys()):
+            info = call[name]
+            if "shape" in info:
+                sig_parts.append(f"{name}:T{tuple(info['shape'])}")
+            elif "value" in info:
+                sig_parts.append(f"{name}:S")
+        sig = "|".join(sig_parts)
+        if sig not in seen_signatures:
+            seen_signatures[sig] = call
+            patterns.append(call)
+    return patterns
+
+
+def _format_call_patterns(patterns: list[dict]) -> list[dict[str, Any]]:
+    """Convert raw per-call shape dicts into prompt-friendly format with shape/dtype/kind per param."""
+    formatted = []
+    for call in patterns:
+        entry = {}
+        for name, info in call.items():
+            if "shape" in info:
+                shape_tuple = tuple(info["shape"])
+                if len(shape_tuple) == 0:
+                    shape_str = "()"
+                elif len(shape_tuple) == 1:
+                    shape_str = f"({shape_tuple[0]},)"
+                else:
+                    shape_str = str(shape_tuple)
+                entry[name] = {
+                    "shape": shape_str,
+                    "dtype": info.get("dtype"),
+                    "kind": "tensor",
+                }
+            elif "value" in info:
+                entry[name] = {
+                    "shape": str(info["value"]),
+                    "dtype": info.get("type"),
+                    "kind": "scalar",
+                }
+        formatted.append(entry)
+    return formatted
+
+
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
@@ -533,6 +603,7 @@ class TranslationPipeline:
         concrete_dims: Optional[dict[str, int]] = None,
         debug_root: Optional[Path] = None,
         call_site_code: str = "",
+        all_calls: bool = False,
     ):
         self.provider_name = provider_name
         self.model_name = model_name
@@ -542,6 +613,7 @@ class TranslationPipeline:
         self.concrete_dims = concrete_dims or {}
         self.debug_root = debug_root
         self.call_site_code = call_site_code
+        self.all_calls = all_calls
 
     def run(self, file_path: str, source_code: Optional[str] = None, call_site_code: Optional[str] = None) -> PipelineContext:
         """
@@ -568,6 +640,7 @@ class TranslationPipeline:
             file_path=file_path,
             run_id=run_id,
             call_site_code=call_site_code,
+            all_calls=self.all_calls,
         )
 
         debug_logger.persist_source_code(debug_dir, source_code)
@@ -577,7 +650,7 @@ class TranslationPipeline:
 
         # Determine which shape stage to use
         if call_site_code:
-            shape_stage = ShapeExtractionStage()
+            shape_stage = ShapeExtractionStage(all_calls=self.all_calls)
         else:
             shape_stage = ShapeResolveStage()
 

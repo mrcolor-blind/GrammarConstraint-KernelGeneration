@@ -56,6 +56,7 @@ import user_function
 
 # --- Tracer setup ---
 _captured = {{}}
+_captured["calls"] = []
 _original = getattr(user_function, {repr(function_name)}, None)
 
 if _original is None:
@@ -90,6 +91,7 @@ def _traced_function(*args, **kwargs):
                 "type": type(v).__name__,
             }}
     
+    _captured["calls"].append(shapes)
     _captured["shapes"] = shapes
     _captured["called"] = True
     
@@ -266,19 +268,28 @@ def extract_shapes(
     )
     
     # Map positional arg_N to parameter names
-    if "shapes" in result and param_names:
-        mapped_shapes = {}
-        for key, value in result["shapes"].items():
-            if key.startswith("arg_"):
-                idx = int(key.split("_")[1])
-                if idx < len(param_names):
-                    mapped_shapes[param_names[idx]] = value
-            else:
-                # Keyword arg, keep as is
-                mapped_shapes[key] = value
-        result["shapes"] = mapped_shapes
+    if param_names:
+        # Map the last-call shapes (backward compat)
+        if "shapes" in result:
+            result["shapes"] = _map_positional(result["shapes"], param_names)
+        # Map all calls
+        if "calls" in result:
+            result["calls"] = [_map_positional(call, param_names) for call in result["calls"]]
     
     return result
+
+
+def _map_positional(shapes: dict, param_names: list[str]) -> dict:
+    """Map arg_N keys to real parameter names."""
+    mapped = {}
+    for key, value in shapes.items():
+        if key.startswith("arg_"):
+            idx = int(key.split("_")[1])
+            if idx < len(param_names):
+                mapped[param_names[idx]] = value
+        else:
+            mapped[key] = value
+    return mapped
 
 
 def format_shapes_for_prompt(shapes: dict) -> dict[str, str]:

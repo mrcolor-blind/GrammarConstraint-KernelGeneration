@@ -1,18 +1,29 @@
-You are an expert in Triton programming. Given a PyTorch function and its complete mathematical description, generate a self-contained Python module containing:
+You are an expert in Triton programming. Given a PyTorch function and its complete mathematical description, generate a self-contained Python module.
 
+## CORE STRUCTURE
 1. Required imports (torch, triton, triton.language as tl)
 2. One Triton kernel per fused operation group
 3. A wrapper function with the EXACT same name and signature as the original PyTorch function
 
-CRITICAL RULES:
+## KERNEL REQUIREMENTS
+- For element-wise ops: use tl.load + compute + tl.store pattern.
+- For matmul: implement tiled matrix multiplication with tl.dot().
+- For reductions: use tl.reduce() or manual reduction loops.
+- For scalar inputs: pass the scalar value directly as a kernel argument (do NOT load from a pointer).
+- For tensor inputs: load with tl.load, respecting the input shape and dtype.
+- Design appropriate BLOCK_SIZE constants and grid launch for the given shapes.
+- If an input is marked [scalar], treat it as a Python float/int constant in the kernel.
+
+## WRAPPER REQUIREMENTS
+- The wrapper must have the EXACT function name and EXACT signature provided.
+- Preserve all parameter names and their order.
+- Handle scalar parameters by passing them directly as Python scalars to the kernel.
+- Parameters shown as "None (not provided)" are optional and can be safely ignored.
+- Allocate the output tensor with the OUTPUT SHAPE and dtype provided above.
+
+## CONSTRAINTS
 - Use ONLY valid Triton APIs. The correct imports are:
     import triton
     import triton.language as tl
 - Do NOT use: triton.lang, tl.mm(), tl.Scalar, tl.Tensor (as argument type), tl.zero(), or any other hallucinated API.
-- For matmul: implement tiled matrix multiplication with tl.dot().
-- For element-wise ops: use tl.load + compute + tl.store pattern.
-- For reductions: use tl.reduce() or manual reduction loops.
-- Design appropriate BLOCK_SIZE constants and grid launch.
 - Return ONLY valid Python code. No markdown fences, no explanations.
-- The wrapper must have the EXACT function name and EXACT signature provided.
-- Preserve all parameter names and their order.

@@ -1,5 +1,6 @@
 import modal
 from pathlib import Path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 TRITONBENCH_REPO = "https://github.com/thunlp/TritonBench.git"
@@ -25,6 +26,51 @@ PATCH_PERF = (
     f"""sed -i 's|^gpu_count = .*|gpu_count = 1|' """
     f"""{TRITONBENCH_DIR}/performance_metrics/perf_T/run_bench/multiprocess_gpu_run.py"""
 )
+
+# List of path substrings to exclude from the image upload
+_EXCLUDED_SUBSTRINGS = [
+    # Virtual environments
+    "/venv/", "/.venv/", "/env/",
+    # Local debug artifacts
+    "/debug/", "/predictions/", "/results/",
+    # Python cache
+    "/__pycache__/", ".pyc", ".pyo", ".egg-info/", ".pytest_cache/",
+    # Git
+    "/.git/", ".gitignore",
+    # Build artifacts
+    "/dist/", "/build/", ".egg",
+    # IDE
+    "/.vscode/", "/.idea/", ".swp", ".swo",
+    # OS
+    ".DS_Store", "Thumbs.db",
+    # Jupyter
+    ".ipynb_checkpoints/", ".ipynb",
+    # Modal
+    "/.modal/",
+    # VS Code Extension
+    "/apps/vscode-extension/",
+    # Secrets / local env
+    ".env", ".envrc",
+    # Local datasets (not needed at runtime — TritonBench is cloned in the image)
+    "/datasets/tritonbench/",  # Exclude the whole tritonbench dataset dir
+    # Tests / local scripts
+    "test_", "_test.py",
+    # Docs
+    "docker-compose.yml", ".dockerignore", "Dockerfile",
+    "SERVICE.md", "README.md",
+    # Unused backends
+    "/backends/local/", "/backends/future/",
+]
+
+
+def _should_ignore(path: Path) -> bool:
+    """Return True if the file should be ignored (skipped) in the image upload."""
+    path_str = str(path)
+    for excluded in _EXCLUDED_SUBSTRINGS:
+        if excluded in path_str:
+            return True
+    return False
+
 
 def _create_benchmark_image():
     return (
@@ -61,6 +107,7 @@ def _create_benchmark_image():
         .add_local_dir(
             str(PROJECT_ROOT),
             remote_path="/root/project",
+            ignore=_should_ignore,
         )
     )
 
@@ -86,6 +133,7 @@ def _create_production_image():
         .add_local_dir(
             str(PROJECT_ROOT),
             remote_path="/root/project",
+            ignore=_should_ignore,
         )
     )
 

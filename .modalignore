@@ -42,6 +42,27 @@ Thumbs.db
 .modal/
 
 # VS Code Extension
-apps/vscode-extension/node_modules/
-apps/vscode-extension/out/
-apps/vscode-extension/*.vsix
+apps/vscode-extension/
+
+# Secrets / local env
+.env
+.env.*
+.envrc
+
+# Local datasets (not needed at runtime — TritonBench is cloned in the image)
+datasets/tritonbench/*.json
+datasets/tritonbench/*.jsonl
+
+# Tests / local scripts
+test_*.py
+*_test.py
+
+# Docs
+docker-compose.yml
+.dockerignore
+Dockerfile
+*.md
+
+# Unused backends
+backends/local/
+backends/future/

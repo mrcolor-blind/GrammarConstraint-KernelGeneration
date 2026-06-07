@@ -212,12 +212,24 @@ def write_summary(debug_dir: Path, ctx: PipelineContext):
         if ser.error:
             lines.append(f"- Error: {ser.error}")
         if ser.shapes:
-            lines.append("- Extracted shapes:")
+            lines.append("- Extracted shapes (last call):")
             for name, info in ser.shapes.items():
                 if "shape" in info:
                     lines.append(f"  - {name}: {info['shape']} (dtype={info.get('dtype', 'N/A')}, device={info.get('device', 'N/A')})")
                 elif "value" in info:
                     lines.append(f"  - {name}: {info['value']} ({info.get('type', 'N/A')})")
+        if ser.calls and len(ser.calls) > 1:
+            lines.append(f"- Total calls captured: {len(ser.calls)}")
+        if ser.patterns:
+            lines.append(f"- Structural patterns (deduplicated): {len(ser.patterns)}")
+            for i, pat in enumerate(ser.patterns, start=1):
+                parts = []
+                for name in sorted(pat.keys()):
+                    info = pat[name]
+                    kind = info.get("kind", "?")
+                    shape = info.get("shape", "?")
+                    parts.append(f"  Pattern {i}:  {name}={shape} [{kind}]")
+                lines.extend(parts)
 
     if ctx.user_comparison_result:
         lines.append("")

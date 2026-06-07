@@ -86,14 +86,25 @@ class TorchToTritonPromptBuilder:
         lines.append(f"ORIGINAL SIGNATURE: {graph.signature}")
         lines.append("")
 
-        # Input shapes from parameters
-        lines.append("INPUT SHAPES:")
-        for p in graph.parameters:
-            shape_str = p.shape if p.shape else "(not annotated)"
-            lines.append(f"  {p.name}: {shape_str}")
-        lines.append("")
+        if graph.call_patterns and len(graph.call_patterns) > 1:
+            lines.extend(_render_observed_calls(graph.call_patterns))
+        else:
+            # Input shapes with kind and dtype (single pattern)
+            lines.append("INPUT SHAPES:")
+            for p in graph.parameters:
+                shape_str = _format_param(p)
+                lines.append(f"  {p.name}: {shape_str}")
+            lines.append("")
 
-        lines.append(f"OUTPUT VARIABLE: {graph.output_var}")
+        # Output shape
+        output_shape, output_dtype = _resolve_output_info(graph)
+        if output_shape:
+            shape_str = f"OUTPUT SHAPE: {output_shape}"
+            if output_dtype:
+                shape_str += f" {output_dtype}"
+            lines.append(shape_str)
+        else:
+            lines.append("OUTPUT SHAPE: (infer from input shapes above)")
         lines.append("")
         lines.append("=" * 66)
         lines.append("")
@@ -105,7 +116,7 @@ class TorchToTritonPromptBuilder:
         lines.append("")
         lines.append("Now generate a Triton kernel for this exact user function with the following requirements:")
         lines.append("- The wrapper must match the ORIGINAL SIGNATURE exactly.")
-        lines.append("- Use the input shapes provided above to design appropriate BLOCK_SIZE and grid.")
+        lines.append("- Use the input shapes and output shape provided above to design appropriate BLOCK_SIZE and grid.")
         lines.append("- Return ONLY valid Python code. No markdown fences, no explanations.")
         lines.append("")
         lines.append("Generate the complete, self-contained Python module now.")
@@ -127,14 +138,33 @@ class TorchToTritonPromptBuilder:
         lines.append(f"ORIGINAL SIGNATURE: {graph.signature}")
         lines.append("")
 
-        # Input shapes from parameters
-        lines.append("INPUT SHAPES:")
-        for p in graph.parameters:
-            shape_str = p.shape if p.shape else "(not annotated)"
-            lines.append(f"  {p.name}: {shape_str}")
-        lines.append("")
+        if graph.call_patterns and len(graph.call_patterns) > 1:
+            lines.extend(_render_observed_calls(graph.call_patterns))
+        else:
+            # Input shapes with kind and dtype (single pattern)
+            lines.append("INPUT SHAPES:")
+            for p in graph.parameters:
+                shape_str = _format_param(p)
+                lines.append(f"  {p.name}: {shape_str}")
+            lines.append("")
 
-        lines.append(f"OUTPUT VARIABLE: {graph.output_var}")
+        # Output shape
+        output_shape = None
+        output_dtype = None
+        if fusion_plan.groups:
+            last_group = fusion_plan.groups[-1]
+            os_candidate = last_group.output_shape
+            if os_candidate and os_candidate not in ("<unknown>", "<inferred>", "(see annotation)"):
+                output_shape = os_candidate
+        if not output_shape:
+            output_shape, output_dtype = _resolve_output_info(graph)
+        if output_shape:
+            shape_str = f"OUTPUT SHAPE: {output_shape}"
+            if output_dtype:
+                shape_str += f" {output_dtype}"
+            lines.append(shape_str)
+        else:
+            lines.append("OUTPUT SHAPE: (infer from input shapes above)")
         lines.append("")
         lines.append("=" * 66)
 
@@ -192,6 +222,88 @@ class TorchToTritonPromptBuilder:
         lines.append("Generate the complete, self-contained Python module now.")
 
         return "\n".join(lines)
+
+
+def _format_param(p) -> str:
+    """Format a Parameter for the prompt with shape, dtype, and kind."""
+    parts = []
+    if p.shape:
+        parts.append(p.shape)
+    if p.dtype:
+        parts.append(p.dtype)
+    if p.param_kind:
+        parts.append(f"[{p.param_kind}]")
+    return " ".join(parts) if parts else "None (not provided)"
+
+
+def _resolve_output_info(graph):
+    """Resolve the output shape and dtype from the OperationGraph."""
+    output_shape = None
+    output_dtype = None
+
+    # Get output shape from last operation
+    if graph.operations:
+        last_op = graph.operations[-1]
+        if last_op.shape and last_op.shape not in ("<unknown>", "<inferred>", "(see annotation)"):
+            output_shape = last_op.shape
+
+    # Fall back to first tensor param shape
+    if not output_shape:
+        for p in graph.parameters:
+            if p.param_kind == "tensor" and p.shape:
+                output_shape = p.shape
+                break
+
+    # Get dtype from first tensor param
+    for p in graph.parameters:
+        if p.param_kind == "tensor" and p.dtype:
+            output_dtype = p.dtype
+            break
+
+    return output_shape, output_dtype
+
+
+def _render_observed_calls(patterns: list[dict]) -> list[str]:
+    """Render the OBSERVED CALLS section when there are multiple structural patterns."""
+    lines = []
+    lines.append("OBSERVED CALLS (kernel must handle ALL structural patterns below):")
+    lines.append("")
+    for i, pat in enumerate(patterns, start=1):
+        parts = []
+        for name in sorted(pat.keys()):
+            info = pat[name]
+            kind_tag = f"[{info['kind']}]"
+            parts.append(f"{name}={info['shape']} {info.get('dtype', '')} {kind_tag}".strip())
+        lines.append(f"  Pattern {i}: {', '.join(parts)}")
+    lines.append("")
+
+    diff_summary = _compute_diff_summary(patterns)
+    if diff_summary:
+        lines.append(f"KERNEL MUST HANDLE: {diff_summary}")
+        lines.append("")
+    return lines
+
+
+def _compute_diff_summary(patterns: list[dict]) -> str:
+    """Identify which parameters vary across patterns and summarize."""
+    if not patterns or len(patterns) < 2:
+        return ""
+    param_names = set()
+    for pat in patterns:
+        param_names.update(pat.keys())
+    varying = []
+    for name in sorted(param_names):
+        kinds = set()
+        for pat in patterns:
+            info = pat.get(name)
+            if info:
+                kinds.add(info.get("kind"))
+        if len(kinds) > 1:
+            kinds_str = " AND ".join(f"{k}" for k in sorted(kinds))
+            varying.append(f"{kinds_str} for parameter '{name}'")
+    if not varying:
+        return "different input shapes for the same parameter kinds"
+    return " AND ".join(varying)
 
 
 def _suggest_approach(group) -> str:
