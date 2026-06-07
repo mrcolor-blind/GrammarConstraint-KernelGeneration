@@ -43,19 +43,30 @@ class TorchToTritonPromptBuilder:
         is_single_op = len(graph.operations) == 1
         is_tritonbench = False
         full_instruction = None
-        
-        if is_single_op and graph.operations:
+
+        # ── 1. Check if the function name itself is a composite TritonBench operator ──
+        # Examples: gelu_std, add_gelu, sum_std, etc.
+        from datasets.tritonbench.registry import get_registry
+        registry = get_registry()
+        if registry.is_bench_operator(graph.function_name):
+            entry = registry.get_entry(graph.function_name)
+            if entry and entry.get("instruction"):
+                is_tritonbench = True
+                full_instruction = entry["instruction"]
+
+        if is_single_op and not is_tritonbench and graph.operations:
+            # Fallback: check if the single op is in TritonBench (old behavior)
             op = graph.operations[0]
             ctx = contexts.get(op.op_name)
             if ctx and ctx.source == "tritonbench_json" and ctx.full_instruction:
                 is_tritonbench = True
                 full_instruction = ctx.full_instruction
 
-        if is_single_op and is_tritonbench and full_instruction:
+        if is_tritonbench and full_instruction:
             return TorchToTritonPromptBuilder._render_direct_mode(
                 graph, full_instruction
             )
-        
+
         return TorchToTritonPromptBuilder._render_fusion_mode(
             graph, fusion_plan, contexts
         )

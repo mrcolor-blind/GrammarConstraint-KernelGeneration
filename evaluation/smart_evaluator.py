@@ -3,12 +3,20 @@ Smart Evaluator — elige la estrategia de evaluación correcta.
 
 Lógica de matching (en orden de prioridad):
 
-  1. Busca qué operaciones torch usa la función original (torch.add, torch.gelu…).
-     Normaliza: "torch.add" → "add". Si UNA SOLA de esas ops está en TritonBench
-     de forma inequívoca → usa bench_evaluation_single con esa entrada.
+  1. Si el nombre de la función del usuario está en TritonBench, confirma con
+     las operaciones torch internas:
+     - Si todas las ops específicas detectadas son substrings del nombre
+       → usa TritonBench con ese nombre (ej: gelu_std → match gelu_std).
+     - Si una op específica contradice el nombre (no es substring)
+       → usa esa op en su lugar (ej: función "add" que usa matmul → match matmul).
+     - Si no hay ops específicas → usa el nombre de la función (ops ambiguas
+       como add/mul/sub/div no contradicen).
 
-  2. Si hay ambigüedad (múltiples ops en bench) o ninguna op confirma el match,
-     cae a compare_with_user contra el PyTorch original del usuario.
+  2. Si el nombre NO está en TritonBench, busca una única op específica
+     detectada en el código. Si hay exactamente una → úsala.
+
+  3. Si hay ambigüedad (múltiples ops específicas) o ninguna op confirma el
+     match, cae a compare_with_user contra el PyTorch original del usuario.
 
 Esto evita falsos positivos: una función llamada "add" que internamente
 solo use torch.matmul NO se compararía contra el entry "add" de TritonBench.
@@ -32,51 +40,64 @@ def _resolve_bench_operator(
     """
     Devuelve el nombre del operador TritonBench a usar, o None.
 
-    Reglas:
+    Reglas (en orden de prioridad):
     1. Normaliza torch_op_names → short names (sin prefijo "torch.")
-    2. Filtra las que existen en TritonBench
-    3. Si hay exactamente UNA op específica (no ambigua) en bench → úsala
-    4. Si la única match es ambigua (mul, add…) pero el function_name también
-       está en bench → confirmar con function_name
-    5. Si function_name está en bench y NO hay ops contradictorias → úsalo
-    6. Caso contrario → None (compare_with_user)
+    2. Si function_name está en TritonBench:
+       a) Si hay ops específicas → verificar que alguna sea substring de function_name.
+          - Si al menos una op específica es substring → match confirmado
+          - Si ninguna es substring → hay contradicciones
+            - Si exactamente UNA contradicción → usar esa op
+            - Si múltiples contradicciones → ambiguo, None
+            - Si NO hay ops específicas → usar function_name (ops ambiguas no contradicen)
+       b) Si no hay ops en bench → confirmar con function_name
+    3. Si function_name NO está en bench:
+       - Si hay exactamente UNA op específica en bench → úsala
+       - Si hay múltiples ops específicas → ambiguo, None
+       - Si solo ops ambiguas → None
     """
     # Normalizar: "torch.add" → "add", "torch.nn.functional.gelu" → "gelu"
     short_ops = {op.split(".")[-1] for op in torch_op_names}
-
     bench_matches = short_ops & registry.operator_names()
-
-    # Quita ops ambiguas para la decisión primaria
     specific_matches = bench_matches - _AMBIGUOUS_OPS
 
+    # ── 1. function_name está en TritonBench ──────────────────────────────────
+    if registry.is_bench_operator(function_name):
+        # Check if ANY specific op is a substring of function_name.
+        # This handles composite operators (e.g., batch_norm in silu_batch_norm)
+        # and single ops (e.g., gelu in gelu).
+        matching_ops = {op for op in specific_matches if op in function_name}
+        if matching_ops:
+            return function_name
+
+        # No specific op matches function_name → check for contradictions
+        real_contradictions = {op for op in specific_matches if op not in function_name}
+        if real_contradictions:
+            if len(real_contradictions) == 1:
+                return real_contradictions.pop()
+            # Múltiples contradicciones → ambiguo, compara con usuario
+            logger.debug(
+                f"[smart_evaluate] function_name='{function_name}' contradicho por "
+                f"múltiples ops: {real_contradictions} → compare_with_user"
+            )
+            return None
+
+        # No specific contradictions → use function_name (ambiguous ops don't contradict)
+        return function_name
+
+    # ── 2. function_name NO está en TritonBench ─────────────────────────────
+    # Fallback a la lógica original: match por ops internos
     if len(specific_matches) == 1:
-        # Una sola op específica identifica el operador claramente
         return specific_matches.pop()
 
     if len(specific_matches) > 1:
         # Múltiples ops específicas en bench → función fusionada custom
-        # Si el function_name es uno de ellos, úsalo; si no, ambiguo
-        if function_name in specific_matches:
-            return function_name
+        # Si el function_name es uno de ellos, ya se hubiera manejado arriba
+        # (aquí function_name NO está en bench)
         logger.debug(
             f"[smart_evaluate] Múltiples ops específicas en bench: {specific_matches}. "
             f"function_name='{function_name}' no confirma ninguna → compare_with_user"
         )
         return None
-
-    # No hay ops específicas → solo ops ambiguas o ninguna
-    # Usa function_name si está en bench Y las ops no lo contradicen
-    if registry.is_bench_operator(function_name):
-        # Verificación negativa: ¿hay alguna op en bench que CONTRADIGA el match?
-        # (p.ej. función "add" pero ops son solo torch.matmul → contradice)
-        contradicting = bench_matches - {function_name}
-        if contradicting:
-            logger.debug(
-                f"[smart_evaluate] function_name='{function_name}' está en bench "
-                f"pero ops contradicen: {contradicting} → compare_with_user"
-            )
-            return None
-        return function_name
 
     return None
 
