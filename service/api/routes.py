@@ -236,6 +236,7 @@ def compare_kernel(job_id: str, db: Session = Depends(get_db)):
     """
     Smart evaluation: usa TritonBench si el operador está en el dataset,
     compare_with_user contra PyTorch del usuario si no lo está.
+    Corre dentro de un subprocess modal run para evitar el error de App no running.
     """
     job = crud.get_job(db, job_id)
     if not job:
@@ -254,51 +255,90 @@ def compare_kernel(job_id: str, db: Session = Depends(get_db)):
 
     dims_str = ",".join(f"{k}={v}" for k, v in dims.items())
 
-    from service.core.gpu_utils import _extract_function_name
-    from evaluation.smart_evaluator import smart_evaluate
+    payload = {
+        "original_code": job.source_code,
+        "generated_code": job.generated_code,
+        "concrete_dims_str": dims_str,
+        "extracted_shapes_json": job.extracted_shapes_json or "",
+        "speedup_threshold": 1.0,
+    }
 
-    function_name = _extract_function_name(job.source_code)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
+        json.dump(payload, tmp)
+        tmp_path = tmp.name
+    output_path = tmp_path.replace(".json", "_output.json")
 
+    logs: list[str] = []
     try:
-        result_dict = smart_evaluate(
-            function_name=function_name,
-            generated_code=job.generated_code,
-            original_code=job.source_code,
-            concrete_dims_str=dims_str,
-            extracted_shapes_json=job.extracted_shapes_json or "",
-            speedup_threshold=1.0,
+        logger.info(f"Starting Modal comparison for job {job_id}")
+        logger.info(f"Modal command: modal run service/modal_compare_runner.py --json-file {tmp_path} --output-file {output_path}")
+
+        process = subprocess.Popen(
+            ["modal", "run", "service/modal_compare_runner.py",
+             "--json-file", tmp_path, "--output-file", output_path],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            cwd="/app", env=_modal_env(),
         )
-    except Exception as exc:
-        logger.error(f"smart_evaluate failed: {exc}")
+
+        for line in process.stdout:
+            line = line.rstrip()
+            logs.append(line)
+            logger.info(f"[modal-compare] {line}")
+
+        returncode = process.wait(timeout=600)
+        if returncode != 0:
+            logger.error(f"Modal compare subprocess exited with code {returncode}")
+            logs.append(f"Modal subprocess exited with code {returncode}")
+
+        output_file = Path(output_path)
+        if output_file.exists():
+            try:
+                data = json.loads(output_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                data = {"error": f"Invalid JSON in output file: {exc}"}
+        else:
+            logger.error(f"Modal output file not found. Last logs: {' | '.join(logs[-5:])}")
+            data = {"error": f"Modal subprocess failed. Last logs: {' | '.join(logs[-5:])}"}
+
+        if "error" in data:
+            cmp = UserComparisonOut(
+                compilation_pass=False, accuracy_pass=False,
+                errors=[data["error"]], logs=logs,
+            )
+            crud.save_job_result(db, job_id=job_id, comparison_json=cmp.model_dump())
+            return cmp
+
         cmp = UserComparisonOut(
-            compilation_pass=False,
-            accuracy_pass=False,
-            errors=[f"{type(exc).__name__}: {exc}"],
+            compilation_pass=data.get("compilation_pass", False),
+            accuracy_pass=data.get("accuracy_pass", False),
+            max_diff=data.get("max_diff"),
+            speedup=data.get("speedup"),
+            ref_time_ms=data.get("ref_time_ms"),
+            gen_time_ms=data.get("gen_time_ms"),
+            suggest_replacement=data.get("suggest_replacement", False),
+            reason=data.get("reason", ""),
+            errors=data.get("errors", []),
+            device=data.get("device"),
+            concrete_dims=data.get("concrete_dims"),
+            logs=data.get("logs", []),
+            strategy=data.get("strategy", "user_comparison"),
         )
         crud.save_job_result(db, job_id=job_id, comparison_json=cmp.model_dump())
         return cmp
 
-    # Extract and log Modal remote logs
-    modal_logs = result_dict.get("logs", [])
-    for line in modal_logs:
-        logger.info(f"[modal-compare] {line}")
-
-    cmp = UserComparisonOut(
-        compilation_pass=result_dict.get("compilation_pass", False),
-        accuracy_pass=result_dict.get("accuracy_pass", False),
-        max_diff=result_dict.get("max_diff"),
-        speedup=result_dict.get("speedup"),
-        ref_time_ms=result_dict.get("ref_time_ms"),
-        gen_time_ms=result_dict.get("gen_time_ms"),
-        suggest_replacement=result_dict.get("suggest_replacement", False),
-        reason=result_dict.get("reason", ""),
-        errors=result_dict.get("errors", []),
-        device=result_dict.get("device"),
-        concrete_dims=result_dict.get("concrete_dims"),
-        logs=modal_logs,
-    )
-    crud.save_job_result(db, job_id=job_id, comparison_json=cmp.model_dump())
-    return cmp
+    except subprocess.TimeoutExpired:
+        logger.error("Modal compare subprocess timed out after 600s")
+        logs.append("Modal comparison timed out after 10 minutes")
+        cmp = UserComparisonOut(
+            compilation_pass=False, accuracy_pass=False,
+            errors=["Modal comparison timed out after 10 minutes"],
+            logs=logs,
+        )
+        crud.save_job_result(db, job_id=job_id, comparison_json=cmp.model_dump())
+        return cmp
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+        Path(output_path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

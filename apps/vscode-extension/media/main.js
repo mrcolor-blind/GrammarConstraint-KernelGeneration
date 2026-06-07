@@ -178,20 +178,75 @@
         html += `<div class="error-box">${escapeHtml(compareResult.error)}</div>`;
       } else {
         const d = compareResult.data;
-        html += `<p><strong>call_accuracy:</strong> <span class="badge ${d.accuracy_pass ? 'success' : 'error'}">${d.accuracy_pass ? 'OK' : 'FALLO'}</span></p>`;
-        if (d.max_diff != null) html += `<p><strong>exec_accuracy (max_diff):</strong> ${d.max_diff.toExponential(3)}</p>`;
-        if (d.speedup != null) html += `<p><strong>Speedup:</strong> <span class="badge ${d.speedup >= 1 ? 'success' : 'warning'}">${d.speedup.toFixed(2)}x</span></p>`;
-        if (d.ref_time_ms != null) {
-          html += `<p><strong>PyTorch:</strong> ${d.ref_time_ms.toFixed(3)} ms</p>`;
-        } else if (gpuResult && gpuResult.data && gpuResult.data.pytorch_time_ms != null) {
-          html += `<p><strong>PyTorch (GPU):</strong> ${gpuResult.data.pytorch_time_ms.toFixed(3)} ms</p>`;
+        const strategy = d.strategy || 'user_comparison';
+        const isTritonBench = strategy === 'tritonbench';
+
+        html += `<p><strong>Estrategia:</strong> <span class="badge ${isTritonBench ? 'info' : 'default'}">${isTritonBench ? 'TritonBench' : 'Comparación directa PyTorch'}</span></p>`;
+
+        // ── Timing Section ──
+        html += '<div class="timing-section">';
+        html += '<h4>⏱️ Tiempos de ejecución</h4>';
+
+        // PyTorch (reference) — always show first
+        const pytorchTime = d.ref_time_ms != null ? d.ref_time_ms : (gpuResult && gpuResult.data ? gpuResult.data.pytorch_time_ms : null);
+        if (pytorchTime != null) {
+          html += `<div class="timing-row">`;
+          html += `<span class="timing-label">🐍 PyTorch</span>`;
+          html += `<span class="timing-value">${pytorchTime.toFixed(3)} ms</span>`;
+          html += `</div>`;
+        } else {
+          html += `<p class="hint">PyTorch: no medido</p>`;
         }
-        if (d.gen_time_ms != null) html += `<p><strong>Triton:</strong> ${d.gen_time_ms.toFixed(3)} ms</p>`;
-        if (d.suggest_replacement) html += `<p><span class="badge success">✅ Recomendado reemplazar PyTorch con este kernel</span></p>`;
+
+        // Triton (generated) — show second
+        if (d.gen_time_ms != null) {
+          html += `<div class="timing-row">`;
+          html += `<span class="timing-label">⚡ Triton</span>`;
+          html += `<span class="timing-value">${d.gen_time_ms.toFixed(3)} ms</span>`;
+          html += `</div>`;
+        } else {
+          html += `<p class="hint">Triton: no medido (posiblemente falló compilación o ejecución)</p>`;
+        }
+
+        // Speedup
+        if (d.speedup != null) {
+          const speedupBadge = d.speedup >= 1.5 ? 'success' : (d.speedup >= 1.0 ? 'warning' : 'error');
+          html += `<div class="timing-row speedup">`;
+          html += `<span class="timing-label">📈 Speedup</span>`;
+          html += `<span class="timing-value badge ${speedupBadge}">${d.speedup.toFixed(2)}x</span>`;
+          html += `</div>`;
+        }
+        html += '</div>';
+
+        // ── Accuracy / Quality Section ──
+        html += '<div class="accuracy-section">';
+        html += '<h4>🎯 Precisión</h4>';
+
+        if (isTritonBench) {
+          // TritonBench specific metrics
+          html += `<p><strong>Call accuracy:</strong> <span class="badge ${d.call_accuracy ? 'success' : 'error'}">${d.call_accuracy ? 'OK' : 'FALLO'}</span></p>`;
+          html += `<p><strong>Exec accuracy:</strong> <span class="badge ${d.exec_accuracy ? 'success' : 'error'}">${d.exec_accuracy ? 'OK' : 'FALLO'}</span></p>`;
+          if (d.operator) html += `<p><strong>Operador:</strong> ${escapeHtml(d.operator)}</p>`;
+        } else {
+          // User comparison metrics
+          html += `<p><strong>Compilación:</strong> <span class="badge ${d.compilation_pass ? 'success' : 'error'}">${d.compilation_pass ? 'OK' : 'FALLO'}</span></p>`;
+          html += `<p><strong>Precisión numérica:</strong> <span class="badge ${d.accuracy_pass ? 'success' : 'error'}">${d.accuracy_pass ? 'OK' : 'FALLO'}</span></p>`;
+          if (d.max_diff != null) html += `<p><strong>Max diff:</strong> ${d.max_diff.toExponential(3)}</p>`;
+        }
+        html += '</div>';
+
+        // ── Recommendation ──
+        if (d.suggest_replacement) {
+          html += `<p><span class="badge success">✅ Recomendado reemplazar PyTorch con este kernel</span></p>`;
+        }
         if (d.reason) html += `<p class="hint">${escapeHtml(d.reason)}</p>`;
+
+        // ── Errors ──
         if (d.errors && d.errors.length > 0) {
           html += '<ul class="error-list">' + d.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
         }
+
+        // ── Logs ──
         if (d.logs && d.logs.length > 0) {
           html += `<div class="log-toggle" onclick="this.nextElementSibling.classList.toggle('collapsed')">📋 Ver logs comparación (${d.logs.length} líneas)</div>`;
           html += `<pre class="log-block collapsed"><code>${escapeHtml(d.logs.join('\n'))}</code></pre>`;

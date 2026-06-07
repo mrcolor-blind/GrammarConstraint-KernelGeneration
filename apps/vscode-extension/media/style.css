@@ -442,3 +442,72 @@ h1 {
   border: 2px solid var(--accent);
   background: var(--vscode-editor-inactiveSelectionBackground);
 }
+
+/* Timing Section */
+.timing-section {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.timing-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.95em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.timing-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.timing-row:last-child {
+  border-bottom: none;
+}
+
+.timing-row.speedup {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 2px solid var(--border);
+  font-weight: 600;
+}
+
+.timing-label {
+  font-weight: 500;
+}
+
+.timing-value {
+  font-family: var(--vscode-editor-font-family);
+  font-weight: 600;
+}
+
+/* Accuracy Section */
+.accuracy-section {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.accuracy-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.95em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Additional badge styles */
+.badge.info {
+  background: rgba(3, 169, 244, 0.2);
+  color: #03a9f4;
+}
+
+.badge.default {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}

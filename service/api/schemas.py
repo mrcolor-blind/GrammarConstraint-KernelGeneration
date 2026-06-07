@@ -43,6 +43,7 @@ class UserComparisonOut(BaseModel):
     device: Optional[str] = None
     concrete_dims: Optional[dict] = None
     logs: list[str] = []
+    strategy: str = "unknown"  # "user_comparison" | "tritonbench"
 
 
 class TranslateRequest(BaseModel):

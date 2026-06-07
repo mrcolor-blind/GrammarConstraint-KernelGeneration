@@ -48,6 +48,11 @@ export interface CompareResponse {
   errors: string[];
   device?: string;
   logs?: string[];
+  strategy?: string;
+  // TritonBench-specific fields
+  call_accuracy?: boolean;
+  exec_accuracy?: boolean;
+  operator?: string;
 }
 
 export interface EvaluateResponse {
