@@ -8,6 +8,7 @@ export class TritonPanel {
   private _disposables: vscode.Disposable[] = [];
   private _jobId: string | null = null;
   private _sourceCode: string = '';
+  private _callSiteCode: string = '';
   private _dims: Record<string, number> = {};
 
   public static createOrShow(extensionUri: vscode.Uri) {
@@ -53,8 +54,9 @@ export class TritonPanel {
         switch (message.command) {
           case 'translate':
             this._sourceCode = message.sourceCode;
-            this._dims = message.dims;
-            await this._doTranslate(message.sourceCode, message.dims);
+            this._callSiteCode = message.callSiteCode || '';
+            this._dims = message.dims || {};
+            await this._doTranslate(message.sourceCode, message.callSiteCode, message.dims);
             break;
           case 'gpuValidate':
             await this._doGpuValidate(message.jobId);
@@ -105,11 +107,12 @@ export class TritonPanel {
     }
   }
 
-  private async _doTranslate(sourceCode: string, dims: Record<string, number>) {
+  private async _doTranslate(sourceCode: string, callSiteCode: string, dims: Record<string, number>) {
     this._postMessage({ command: 'setProgress', step: 'translate', active: true });
     try {
       const result = await TritonClient.translate({
         source_code: sourceCode,
+        call_site_code: callSiteCode || undefined,
         provider: 'nvidia-grammar',
         dims,
       });
@@ -174,14 +177,18 @@ export class TritonPanel {
     const scriptUri = this._panel.webview.asWebviewUri(scriptPath);
     const styleUri = this._panel.webview.asWebviewUri(stylePath);
 
-    const exampleCode = `# @triton
-# @in  x:      (N, D_in)
-# @in  weight: (D_out, D_in)
-# @in  bias:   (D_out,)
-# @out (N, D_out)
+    const exampleCode = `import torch
+
 def linear_relu(x, weight, bias):
     z = x @ weight.T + bias
     return torch.relu(z)`;
+
+    const exampleCallSite = `import torch
+
+x = torch.randn(128, 256)
+weight = torch.randn(512, 256)
+bias = torch.randn(512)
+out = linear_relu(x, weight, bias)`;
 
     return `<!DOCTYPE html>
       <html lang="es">
@@ -204,19 +211,15 @@ def linear_relu(x, weight, bias):
           </section>
 
           <section class="section">
-            <h2>Código PyTorch</h2>
-            <p class="hint">Pega tu código con comentarios @triton y @in/@out:</p>
-            <textarea id="code-input" class="code-textarea" rows="10" spellcheck="false">${exampleCode}</textarea>
-            <div class="section-actions">
-              <button id="btn-analyze" class="btn btn-analyze">🔍 Analizar dimensiones</button>
-              <span id="analyze-status" class="analyze-status"></span>
-            </div>
+            <h2>Definición de la función PyTorch</h2>
+            <p class="hint">Pega tu función PyTorch (sin comentarios, puro código):</p>
+            <textarea id="code-input" class="code-textarea" rows="8" spellcheck="false">${exampleCode}</textarea>
           </section>
 
           <section class="section">
-            <h2>Dimensiones</h2>
-            <p class="hint">Haz clic en "Analizar" para detectarlas automáticamente, o escríbelas manualmente:</p>
-            <div id="dims-form"></div>
+            <h2>Código de llamada (call site)</h2>
+            <p class="hint">Pega el código que invoca tu función para extraer shapes reales de los tensores:</p>
+            <textarea id="call-site-input" class="code-textarea" rows="6" spellcheck="false">${exampleCallSite}</textarea>
           </section>
 
           <section class="section actions">

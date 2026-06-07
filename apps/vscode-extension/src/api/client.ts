@@ -2,6 +2,7 @@ const BASE_URL = 'http://localhost:8000/api/v1';
 
 export interface TranslatePayload {
   source_code: string;
+  call_site_code?: string;
   provider?: string;
   model?: string;
   dims?: Record<string, number>;
@@ -76,6 +77,7 @@ export interface JobListResponse {
 
 export interface JobDetail extends JobSummary {
   source_code?: string;
+  call_site_code?: string;
   generated_code?: string | null;
   validation?: any;
   gpu_validation?: any;

@@ -99,6 +99,9 @@ def _traced_function(*args, **kwargs):
 # Monkey-patch
 setattr(user_function, {repr(function_name)}, _traced_function)
 
+# Also inject into the global namespace of this module (__main__) so the call site can use it
+globals()[{repr(function_name)}] = _traced_function
+
 # --- Execute call site ---
 try:
     {call_site_placeholder}

@@ -73,6 +73,7 @@ def translate(payload: TranslateRequest, db: Session = Depends(get_db)):
         provider=payload.provider,
         model=payload.model,
         source_code=payload.source_code,
+        call_site_code=payload.call_site_code,
         dims=payload.dims,
     )
 
@@ -84,6 +85,7 @@ def translate(payload: TranslateRequest, db: Session = Depends(get_db)):
         provider=payload.provider,
         model=payload.model,
         dims=payload.dims,
+        call_site_code=payload.call_site_code,
     )
 
     # Build response
@@ -149,6 +151,7 @@ def gpu_validate(job_id: str, db: Session = Depends(get_db)):
         generated_code=job.generated_code,
         original_source_code=job.source_code or "",
         dims=dims,
+        extracted_shapes_json=job.extracted_shapes_json,
     )
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
@@ -260,6 +263,7 @@ def compare_kernel(job_id: str, db: Session = Depends(get_db)):
             generated_code=job.generated_code,
             original_code=job.source_code,
             concrete_dims_str=dims_str,
+            extracted_shapes_json=job.extracted_shapes_json or "",
             speedup_threshold=1.0,
         )
     except Exception as exc:
@@ -343,6 +347,7 @@ def get_run(job_id: str, db: Session = Depends(get_db)):
         model=job.model,
         run_id=job.run_id,
         source_code=job.source_code,
+        call_site_code=job.call_site_code,
         generated_code=job.generated_code,
         validation=validation,
         gpu_validation=gpu_validation,

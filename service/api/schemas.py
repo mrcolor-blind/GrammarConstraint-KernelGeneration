@@ -45,7 +45,8 @@ class UserComparisonOut(BaseModel):
 
 
 class TranslateRequest(BaseModel):
-    source_code: str = Field(..., description="Python source code containing the @triton-annotated function")
+    source_code: str = Field(..., description="Python source code containing the function to translate")
+    call_site_code: Optional[str] = Field(default=None, description="Python code that calls the function to extract real tensor shapes")
     provider: str = Field(default="nvidia-grammar", description="LLM provider name")
     model: Optional[str] = Field(default=DEFAULT_MODEL, description=f"Model identifier (default: {DEFAULT_MODEL})")
     dims: Optional[dict[str, int]] = Field(default=None, description='Concrete dimensions for symbolic shapes, e.g. {"N": 128, "D_in": 256}')
@@ -109,6 +110,7 @@ class JobDetail(BaseModel):
     model: Optional[str] = None
     run_id: Optional[str] = None
     source_code: Optional[str] = None
+    call_site_code: Optional[str] = None
     generated_code: Optional[str] = None
     validation: Optional[ValidationOut] = None
     gpu_validation: Optional[GpuValidationOut] = None

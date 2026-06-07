@@ -28,5 +28,6 @@ services:
       - ./utils:/app/utils
       - ./apps:/app/apps
       - ./grammars:/app/grammars
+      - ./shape_extraction:/app/shape_extraction
       - ./datasets:/app/datasets
       - ./requirements.txt:/app/requirements.txt

@@ -17,6 +17,7 @@ def create_job(
     provider: Optional[str] = None,
     model: Optional[str] = None,
     source_code: Optional[str] = None,
+    call_site_code: Optional[str] = None,
     dims: Optional[dict] = None,
 ) -> Job:
     db_job = Job(
@@ -25,6 +26,7 @@ def create_job(
         provider=provider,
         model=model,
         source_code=source_code,
+        call_site_code=call_site_code,
         dims=json.dumps(dims) if dims else None,
     )
     db.add(db_job)
@@ -71,6 +73,7 @@ def save_job_result(
     validation_json: Optional[dict] = None,
     gpu_validation_json: Optional[dict] = None,
     comparison_json: Optional[dict] = None,
+    extracted_shapes_json: Optional[dict] = None,
     errors: Optional[list] = None,
 ):
     job = get_job(db, job_id)
@@ -86,6 +89,8 @@ def save_job_result(
         job.gpu_validation_json = json.dumps(gpu_validation_json)
     if comparison_json is not None:
         job.comparison_json = json.dumps(comparison_json)
+    if extracted_shapes_json is not None:
+        job.extracted_shapes_json = json.dumps(extracted_shapes_json)
     if errors is not None:
         job.errors = json.dumps(errors)
     db.commit()

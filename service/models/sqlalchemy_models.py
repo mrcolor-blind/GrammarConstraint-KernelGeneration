@@ -28,6 +28,7 @@ class Job(Base):
 
     # Inputs (JSON strings)
     source_code = Column(Text, nullable=True)
+    call_site_code = Column(Text, nullable=True)
     dims = Column(Text, nullable=True)
     run_id = Column(String(100), nullable=True)
 
@@ -36,6 +37,7 @@ class Job(Base):
     validation_json = Column(Text, nullable=True)
     gpu_validation_json = Column(Text, nullable=True)
     comparison_json = Column(Text, nullable=True)
+    extracted_shapes_json = Column(Text, nullable=True)
     errors = Column(Text, nullable=True)
 
     # Relationship

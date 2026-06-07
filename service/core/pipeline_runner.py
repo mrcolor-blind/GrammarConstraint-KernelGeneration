@@ -38,6 +38,7 @@ def run_translation(
     provider: str,
     model: Optional[str] = None,
     dims: Optional[dict] = None,
+    call_site_code: Optional[str] = None,
 ) -> dict:
     """
     Execute the full translation pipeline and persist results to the DB.
@@ -57,6 +58,7 @@ def run_translation(
     gpu_validation_result: Optional[dict] = None
     generated_code: Optional[str] = None
     run_id: Optional[str] = None
+    extracted_shapes: Optional[dict] = None
 
     try:
         # Ensure NVIDIA_API_KEY is available in the environment for the provider
@@ -68,6 +70,7 @@ def run_translation(
             model_name=model,
             modal_validate=True,  # GPU validation is always enabled
             concrete_dims=concrete_dims,
+            call_site_code=call_site_code or "",
         )
 
         # Write source to a temp file so the pipeline can parse it
@@ -103,6 +106,10 @@ def run_translation(
                 "device": ctx.gpu_validation_result.device,
             }
 
+        # Extracted shapes from call site execution
+        if ctx.shape_extraction_result and ctx.shape_extraction_result.shapes:
+            extracted_shapes = ctx.shape_extraction_result.shapes
+
         # Collect any pipeline-stage errors from debug artifacts if available
         if not generated_code:
             errors.append("Pipeline completed but no code was generated.")
@@ -122,6 +129,7 @@ def run_translation(
         generated_code=generated_code,
         validation_json=validation_result,
         gpu_validation_json=gpu_validation_result,
+        extracted_shapes_json=extracted_shapes,
         errors=errors if errors else None,
     )
     crud.update_job_status(db, job_id, status)

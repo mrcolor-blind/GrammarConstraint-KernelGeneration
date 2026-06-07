@@ -9,60 +9,12 @@
   let currentRunDetail = null;
 
   const codeInput = document.getElementById('code-input');
-  const btnAnalyze = document.getElementById('btn-analyze');
-  const analyzeStatus = document.getElementById('analyze-status');
-  const dimsForm = document.getElementById('dims-form');
+  const callSiteInput = document.getElementById('call-site-input');
   const btnTranslate = document.getElementById('btn-translate');
   const progressDiv = document.getElementById('progress');
   const progressText = document.getElementById('progress-text');
   const resultsDiv = document.getElementById('results');
   const historyList = document.getElementById('history-list');
-
-  function parseDimsFromCode(code) {
-    const dimsSet = new Set();
-    const lines = code.split('\n');
-    const dimRegex = /@(?:in|out)\s+(?:\w+:\s*)?\(([^)]+)\)/g;
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('#')) {
-        let match;
-        while ((match = dimRegex.exec(trimmed)) !== null) {
-          const shape = match[1];
-          const tokens = shape.split(/[,\s]+/).filter(t => /^[A-Z][A-Z0-9_]*$/.test(t));
-          for (const token of tokens) {
-            dimsSet.add(token);
-          }
-        }
-      }
-    }
-    
-    return Array.from(dimsSet);
-  }
-
-  function renderDimsForm(dims) {
-    if (!dims || dims.length === 0) {
-      dimsForm.innerHTML = '<p class="warning">No se detectaron dimensiones. Escribe comentarios @in/@out con shapes (ej: # @in x: (N, D_in)).</p>';
-      return;
-    }
-
-    dimsForm.innerHTML = '';
-    dims.forEach(dim => {
-      const label = document.createElement('label');
-      label.className = 'dim-label';
-      label.innerHTML = `<span>${dim}</span><input type="number" class="dim-input" data-dim="${dim}" value="128" min="1">`;
-      dimsForm.appendChild(label);
-    });
-  }
-
-  function getDims() {
-    const inputs = dimsForm.querySelectorAll('.dim-input');
-    const dims = {};
-    inputs.forEach(input => {
-      dims[input.dataset.dim] = parseInt(input.value, 10) || 1;
-    });
-    return dims;
-  }
 
   function renderHistory() {
     if (!historyList) return;
@@ -284,31 +236,14 @@
     btnTranslate.disabled = progressDiv.classList.contains('hidden') === false;
   }
 
-  btnAnalyze.addEventListener('click', () => {
-    const code = codeInput.value;
-    const dims = parseDimsFromCode(code);
-    renderDimsForm(dims);
-    if (dims.length > 0) {
-      analyzeStatus.textContent = `✅ Detectadas: ${dims.join(', ')}`;
-      analyzeStatus.className = 'analyze-status success';
-    } else {
-      analyzeStatus.textContent = '⚠️ No se detectaron dimensiones';
-      analyzeStatus.className = 'analyze-status warning';
-    }
-  });
-
   btnTranslate.addEventListener('click', () => {
     const sourceCode = codeInput.value;
     if (!sourceCode.trim()) {
-      alert('Pega código en el textarea antes de traducir.');
+      alert('Pega el código de la definición de la función antes de traducir.');
       return;
     }
-    const dims = getDims();
-    if (Object.keys(dims).length === 0) {
-      alert('No hay dimensiones. Haz clic en "Analizar dimensiones" primero.');
-      return;
-    }
-    vscode.postMessage({ command: 'translate', sourceCode, dims });
+    const callSiteCode = callSiteInput.value;
+    vscode.postMessage({ command: 'translate', sourceCode, callSiteCode, dims: {} });
   });
 
   window.addEventListener('message', (event) => {
@@ -351,7 +286,11 @@
           if (message.data.job_id) {
             jobId = message.data.job_id;
           }
-          // Set up translate/gpu/evaluate results from the detail
+          // Restore call site if available
+          if (message.data.call_site_code) {
+            callSiteInput.value = message.data.call_site_code;
+          }
+          // Set up translate/gpu/compare/evaluate results from the detail
           translateResult = {
             data: {
               job_id: message.data.job_id,
@@ -400,17 +339,8 @@
   };
 
   window.evaluateRun = (jobId) => {
-    const dims = getDims();
-    vscode.postMessage({ command: 'evaluate', jobId, dims });
+    vscode.postMessage({ command: 'evaluate', jobId, dims: {} });
   };
-
-  // Analizar automáticamente al cargar con el ejemplo
-  const initialDims = parseDimsFromCode(codeInput.value);
-  renderDimsForm(initialDims);
-  if (initialDims.length > 0) {
-    analyzeStatus.textContent = `✅ Detectadas: ${initialDims.join(', ')}`;
-    analyzeStatus.className = 'analyze-status success';
-  }
 
   updateButtons();
 })();

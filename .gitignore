@@ -7,3 +7,4 @@ debug/
 *.db
 .env
 
+.DS_Store
