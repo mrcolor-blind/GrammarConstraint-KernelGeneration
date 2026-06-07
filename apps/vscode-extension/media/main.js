@@ -10,6 +10,7 @@
 
   const codeInput = document.getElementById('code-input');
   const callSiteInput = document.getElementById('call-site-input');
+  const useGrammarCheckbox = document.getElementById('use-grammar');
   const btnTranslate = document.getElementById('btn-translate');
   const progressDiv = document.getElementById('progress');
   const progressText = document.getElementById('progress-text');
@@ -305,7 +306,8 @@
       return;
     }
     const callSiteCode = callSiteInput.value;
-    vscode.postMessage({ command: 'translate', sourceCode, callSiteCode, dims: {} });
+    const useGrammar = useGrammarCheckbox ? useGrammarCheckbox.checked : false;
+    vscode.postMessage({ command: 'translate', sourceCode, callSiteCode, dims: {}, useGrammar });
   });
 
   window.addEventListener('message', (event) => {

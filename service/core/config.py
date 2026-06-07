@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///data/service.db"
     nvidia_api_key: str | None = None
-    default_provider: str = "nvidia-grammar"
+    default_provider: str = "nvidia"
     default_model: str = DEFAULT_MODEL
 
     class Config:

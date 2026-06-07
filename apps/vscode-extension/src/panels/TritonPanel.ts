@@ -56,7 +56,7 @@ export class TritonPanel {
             this._sourceCode = message.sourceCode;
             this._callSiteCode = message.callSiteCode || '';
             this._dims = message.dims || {};
-            await this._doTranslate(message.sourceCode, message.callSiteCode, message.dims);
+            await this._doTranslate(message.sourceCode, message.callSiteCode, message.dims, message.useGrammar);
             break;
           case 'gpuValidate':
             await this._doGpuValidate(message.jobId);
@@ -107,13 +107,14 @@ export class TritonPanel {
     }
   }
 
-  private async _doTranslate(sourceCode: string, callSiteCode: string, dims: Record<string, number>) {
+  private async _doTranslate(sourceCode: string, callSiteCode: string, dims: Record<string, number>, useGrammar?: boolean) {
     this._postMessage({ command: 'setProgress', step: 'translate', active: true });
     try {
+      const provider = useGrammar ? 'nvidia-grammar' : 'nvidia';
       const result = await TritonClient.translate({
         source_code: sourceCode,
         call_site_code: callSiteCode || undefined,
-        provider: 'nvidia-grammar',
+        provider,
         dims,
       });
       this._jobId = result.job_id;
@@ -218,6 +219,17 @@ out = linear_relu(x, weight, bias)`;
             <h2>Código de llamada (call site)</h2>
             <p class="hint">Pega el código que invoca tu función para extraer shapes reales de los tensores:</p>
             <textarea id="call-site-input" class="code-textarea" rows="6" spellcheck="false">${exampleCallSite}</textarea>
+          </section>
+
+          <section class="section options-section">
+            <div class="option-row">
+              <label class="toggle-switch" for="use-grammar">
+                <input type="checkbox" id="use-grammar" checked>
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="option-label">Usar gramática restringida</span>
+              <span class="option-hint">(generación más estructurada, puede ser más lenta)</span>
+            </div>
           </section>
 
           <section class="section actions">
