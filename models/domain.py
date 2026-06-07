@@ -105,6 +105,7 @@ class GpuValidationResult:
     errors: list[str] = field(default_factory=list)
     output_shape: Optional[str] = None
     device: Optional[str] = None
+    pytorch_time_ms: Optional[float] = None
 
 
 @dataclass

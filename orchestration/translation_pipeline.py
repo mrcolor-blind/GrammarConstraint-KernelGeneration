@@ -416,6 +416,7 @@ class GpuValidationStage(PipelineStage):
                 errors=result_dict.get("errors", []),
                 output_shape=result_dict.get("output_shape"),
                 device=result_dict.get("device"),
+                pytorch_time_ms=result_dict.get("pytorch_time_ms"),
             )
             ctx.gpu_validation_result = result
             # GPU validation is informational; stage always "succeeds" so pipeline continues

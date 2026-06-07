@@ -104,6 +104,7 @@ def run_translation(
                 "errors": ctx.gpu_validation_result.errors,
                 "output_shape": ctx.gpu_validation_result.output_shape,
                 "device": ctx.gpu_validation_result.device,
+                "pytorch_time_ms": ctx.gpu_validation_result.pytorch_time_ms,
             }
 
         # Extracted shapes from call site execution
