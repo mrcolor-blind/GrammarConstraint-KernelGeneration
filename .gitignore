@@ -6,6 +6,5 @@ debug/
 /data/
 *.db
 .env
-datasets/custom
 
 .DS_Store
