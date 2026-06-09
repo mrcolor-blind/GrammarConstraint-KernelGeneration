@@ -376,6 +376,7 @@ class GpuValidationStage(PipelineStage):
             return StageResult(success=False, error="No OperationGraph available.")
 
         import json, os, subprocess, tempfile
+        import modal as _modal
         from pathlib import Path
 
         # Build input_shapes dict from parameters
@@ -386,6 +387,31 @@ class GpuValidationStage(PipelineStage):
 
         dims_str = ",".join(f"{k}={v}" for k, v in self.concrete_dims.items())
 
+        # ── Fan-out path: estamos dentro de Modal → llamada directa ──────────
+        if not _modal.is_local():
+            try:
+                from backends.modal.jobs.translate_validation import translate_validation
+                result_dict = translate_validation.remote(
+                    generated_code=ctx.generated_code,
+                    function_name=ctx.operation_graph.function_name,
+                    param_names=[p.name for p in ctx.operation_graph.parameters],
+                    input_shapes=input_shapes,
+                    concrete_dims_str=dims_str,
+                )
+                from models.domain import GpuValidationResult
+                result = GpuValidationResult(
+                    compilation_pass=result_dict.get("compilation_pass", False),
+                    execution_pass=result_dict.get("execution_pass", False),
+                    errors=result_dict.get("errors", []),
+                    output_shape=result_dict.get("output_shape"),
+                    device=result_dict.get("device"),
+                )
+                ctx.gpu_validation_result = result
+                return StageResult(success=True, data=result, warnings=result.errors)
+            except Exception as exc:
+                return StageResult(success=True, warnings=[str(exc)])
+
+        # ── Subprocess path: estamos en local → modal run via subprocess ─────
         payload = {
             "job_id": self.run_id,
             "generated_code": ctx.generated_code,
@@ -396,7 +422,6 @@ class GpuValidationStage(PipelineStage):
             "concrete_dims_str": dims_str,
         }
 
-        # Pass Modal credentials explicitly so the subprocess can authenticate
         modal_env = os.environ.copy()
         for key in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"):
             if os.environ.get(key):

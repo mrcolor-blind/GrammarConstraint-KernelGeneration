@@ -41,29 +41,108 @@ def cmd_translate(args):
 
     source_code = source_path.read_text(encoding="utf-8")
 
+    call_site_code = ""
+    if getattr(args, "call_site", None):
+        cs_path = Path(args.call_site)
+        if cs_path.exists():
+            call_site_code = cs_path.read_text(encoding="utf-8")
+        else:
+            call_site_code = args.call_site
+
     if args.dry_run:
         print("=== DRY RUN ===")
         print("Pipeline will run up to prompt generation, no LLM call.")
         print("(Not yet implemented — running full pipeline)")
 
-    # Parse concrete dims for optional GPU validation
     concrete_dims = _parse_concrete_dims(args.dims) if args.dims else {}
+    compare = getattr(args, "compare", False)
+    all_calls = getattr(args, "all_calls", False)
+    speedup_threshold = getattr(args, "speedup_threshold", 1.1)
+    remote = getattr(args, "remote", False)
+
+    if remote:
+        _cmd_translate_remote(
+            args=args,
+            source_code=source_code,
+            call_site_code=call_site_code,
+            concrete_dims=concrete_dims,
+            compare=compare,
+            speedup_threshold=speedup_threshold,
+        )
+        return
 
     pipeline = TranslationPipeline(
         provider_name=args.provider,
         model_name=args.model,
         modal_validate=args.modal_validate,
+        compare_with_user=compare,
+        speedup_threshold=speedup_threshold,
         concrete_dims=concrete_dims,
+        call_site_code=call_site_code,
+        all_calls=all_calls,
     )
 
     ctx = pipeline.run(
         file_path=str(source_path),
         source_code=source_code,
+        call_site_code=call_site_code,
     )
 
-    # Output
-    if args.output:
-        out_dir = Path(args.output)
+    _print_ctx_summary(ctx, args.output)
+
+    if not ctx.generated_code or (ctx.validation_result and not ctx.validation_result.passed):
+        sys.exit(1)
+
+
+def _cmd_translate_remote(
+    args,
+    source_code: str,
+    call_site_code: str,
+    concrete_dims: dict,
+    compare: bool,
+    speedup_threshold: float,
+):
+    """
+    Despacha el pipeline a Modal vía `modal run` (subprocess) → streaming nativo en terminal.
+    """
+    import os as _os
+    import subprocess as _sp
+
+    _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+    cmd = [
+        "modal", "run",
+        "backends/modal/entrypoints.py::translate_remote",
+        "--file", args.file,
+        "--provider", args.provider,
+        "--model", args.model,
+        "--speedup-threshold", str(speedup_threshold),
+    ]
+
+    if getattr(args, "call_site", None):
+        cmd += ["--call-site", args.call_site]
+    if compare:
+        cmd += ["--compare-with-user"]
+    if args.modal_validate:
+        cmd += ["--modal-validate"]
+    if getattr(args, "all_calls", False):
+        cmd += ["--all-calls"]
+    if getattr(args, "dims", None):
+        cmd += ["--dims", args.dims]
+
+    env = {**_os.environ, "PYTHONIOENCODING": "utf-8"}
+
+    try:
+        proc = _sp.run(cmd, cwd=str(_PROJECT_ROOT), env=env)
+        sys.exit(proc.returncode)
+    except FileNotFoundError:
+        print("Error: 'modal' not found in PATH.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _print_ctx_summary(ctx, output: Optional[str]):
+    if output:
+        out_dir = Path(output)
         out_dir.mkdir(parents=True, exist_ok=True)
         out_file = out_dir / f"{ctx.run_id}.py"
         if ctx.generated_code:
@@ -77,35 +156,41 @@ def cmd_translate(args):
         else:
             print("No generated code produced.", file=sys.stderr)
 
-    # Summary
     print(f"\nRun ID: {ctx.run_id}")
     if ctx.validation_result:
         vr = ctx.validation_result
         print(f"Static Validation: {'PASS' if vr.passed else 'FAIL'}")
-        if vr.errors:
-            for e in vr.errors:
-                print(f"  Error: {e}")
-        if vr.warnings:
-            for w in vr.warnings:
-                print(f"  Warning: {w}")
+        for e in vr.errors:
+            print(f"  Error: {e}")
+        for w in vr.warnings:
+            print(f"  Warning: {w}")
 
     if ctx.gpu_validation_result:
         gvr = ctx.gpu_validation_result
         print(f"\nGPU Validation (Modal):")
         print(f"  Compilation: {'PASS' if gvr.compilation_pass else 'FAIL'}")
-        print(f"  Execution: {'PASS' if gvr.execution_pass else 'FAIL'}")
+        print(f"  Execution:   {'PASS' if gvr.execution_pass else 'FAIL'}")
         if gvr.output_shape:
             print(f"  Output shape: {gvr.output_shape}")
         if gvr.device:
             print(f"  Device: {gvr.device}")
-        if gvr.errors:
-            for e in gvr.errors:
-                print(f"  Error: {e}")
+        for e in gvr.errors:
+            print(f"  Error: {e}")
+
+    if ctx.user_comparison_result:
+        ucr = ctx.user_comparison_result
+        print(f"\nComparison vs user PyTorch:")
+        print(f"  Compilation: {'PASS' if ucr.compilation_pass else 'FAIL'}")
+        print(f"  Accuracy:    {'PASS' if ucr.accuracy_pass else 'FAIL'}")
+        if ucr.speedup is not None:
+            print(f"  Speedup:     {ucr.speedup:.2f}x")
+        if ucr.max_diff is not None:
+            print(f"  Max diff:    {ucr.max_diff:.2e}")
+        print(f"  Suggest replacement: {ucr.suggest_replacement}")
+        if ucr.reason:
+            print(f"  Reason: {ucr.reason}")
 
     print(f"\nDebug artifacts: debug/translations/{ctx.run_id}/")
-
-    if not ctx.generated_code or (ctx.validation_result and not ctx.validation_result.passed):
-        sys.exit(1)
 
 
 def cmd_inspect(args):
@@ -253,6 +338,32 @@ def main():
         "--dims",
         default=None,
         help='Concrete dimensions for symbolic shapes when validating on GPU, e.g., "N=128,D_in=256"',
+    )
+    translate_parser.add_argument(
+        "--call-site",
+        default=None,
+        help="Path to a file (or inline code) that calls the function — used for runtime shape extraction",
+    )
+    translate_parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="After generation, compare Triton kernel against original PyTorch code on GPU",
+    )
+    translate_parser.add_argument(
+        "--all-calls",
+        action="store_true",
+        help="Capture all call patterns from the call site (not just the last one)",
+    )
+    translate_parser.add_argument(
+        "--speedup-threshold",
+        type=float,
+        default=1.1,
+        help="Minimum speedup to recommend the generated kernel (default: 1.1)",
+    )
+    translate_parser.add_argument(
+        "--remote",
+        action="store_true",
+        help="Run the entire pipeline on Modal GPU (CUDA available for shape extraction + comparison)",
     )
     translate_parser.add_argument(
         "-v", "--verbose",
